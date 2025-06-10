@@ -16,7 +16,7 @@ jobs:
       - name: Set up software (Node.js)
         uses: actions/setup-node@v3
         with:
-          node-version: '16' # Tells GitHub to use Node.js version 16 (ensure this is compatible with React Scripts 5.0.1 and Firebase SDKs 9.6.1 used in package.json)
+          node-version: '22' # Tells GitHub to use Node.js version 16 (ensure this is compatible with React Scripts 5.0.1 and Firebase SDKs 9.6.1 used in package.json)
 
       - name: Install necessary tools
         run: npm install # This installs all the dependencies listed in your package.json
