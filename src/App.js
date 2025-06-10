@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { initializeApp } from 'firebase/app';
+import { initializeApp } from 'firebase/app'; // Removed getApps here
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import {
   getFirestore,
@@ -27,15 +27,24 @@ let firebaseApp;
 let db;
 let auth;
 
+// Initialize Firebase services globally to ensure it's done only once.
+let firebaseApp;
+let db;
+let auth;
+
+// Helper function to check if Firebase app has already been initialized via global 'firebase.apps'
+const isFirebaseInitialized = () => {
+  return typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0;
+};
+
 // Initialize Firebase if config is available and not already initialized
-// Using getApps().length is the correct way to check if an app has already been initialized.
-if (Object.keys(firebaseConfig).length > 0 && !getApps().length) {
+if (Object.keys(firebaseConfig).length > 0 && !isFirebaseInitialized()) {
   firebaseApp = initializeApp(firebaseConfig);
   db = getFirestore(firebaseApp);
   auth = getAuth(firebaseApp);
-} else if (getApps().length > 0) {
-  // If already initialized (e.g., during hot-reloads in development), get existing instances
-  firebaseApp = getApps()[0]; // Get the first initialized app
+} else if (isFirebaseInitialized()) {
+  // If already initialized (e.g., in a development environment or hot-reloads), get the first instance
+  firebaseApp = firebase.apps[0]; // Access the first initialized app from the global 'firebase' object
   db = getFirestore(firebaseApp);
   auth = getAuth(firebaseApp);
 } else {
