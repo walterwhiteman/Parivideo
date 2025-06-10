@@ -28,13 +28,14 @@ let db;
 let auth;
 
 // Initialize Firebase if config is available and not already initialized
-if (Object.keys(firebaseConfig).length > 0 && !initializeApp.apps.length) {
+// Using getApps().length is the correct way to check if an app has already been initialized.
+if (Object.keys(firebaseConfig).length > 0 && !getApps().length) {
   firebaseApp = initializeApp(firebaseConfig);
   db = getFirestore(firebaseApp);
   auth = getAuth(firebaseApp);
-} else if (initializeApp.apps.length > 0) {
+} else if (getApps().length > 0) {
   // If already initialized (e.g., during hot-reloads in development), get existing instances
-  firebaseApp = initializeApp.apps[0];
+  firebaseApp = getApps()[0]; // Get the first initialized app
   db = getFirestore(firebaseApp);
   auth = getAuth(firebaseApp);
 } else {
