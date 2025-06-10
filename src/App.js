@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth'; // Removed signInWithCustomToken
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth'; // Removed signInWithCustomToken as it's not used for anonymous auth
 import {
   getFirestore,
   doc,
@@ -42,8 +42,9 @@ if (Object.keys(firebaseConfig).length > 0 && !initializeApp.apps.length) {
   console.warn("Firebase config is empty or Firebase not initialized. App may not function correctly. Please ensure window.firebaseConfig is set in public/index.html.");
 }
 
-// Global WebRTC variables. These are managed here for direct WebRTC API interaction,
-// but their lifecycle is closely tied to React component state.
+// Global WebRTC variables for peer connection and streams.
+// These are managed here for direct WebRTC API interaction,
+// but their state and lifecycle are controlled by React component.
 let localStream;
 let remoteStream;
 let peerConnection;
@@ -60,7 +61,8 @@ function App() {
   const [isAuthReady, setIsAuthReady] = useState(false); // Indicates if Firebase auth is initialized
   const [showModal, setShowModal] = useState(false); // Controls visibility of custom alert modal
   const [modalMessage, setModalMessage] = useState(''); // Message content for custom alert modal
-  const [callInitiatorId, setCallInitiatorId] = useState(null); // ID of the user who initiated the current call
+  // `callInitiatorId` is used to track which user started the call for signaling purposes.
+  const [callInitiatorId, setCallInitiatorId] = useState(null);
   const [isCalling, setIsCalling] = useState(false); // True when a call is being dialed or received
   const [isCallActive, setIsCallActive] = useState(false); // True when WebRTC connection is established and streams are active
   const [isLocalVideoMuted, setIsLocalVideoMuted] = useState(false); // State for local video mute button
@@ -114,7 +116,7 @@ function App() {
 
     // Clean up the auth listener when the component unmounts
     return () => unsubscribe();
-  }, []); // Empty dependency array means this runs once on mount
+  }, []); // Empty dependency array means this runs once on mount. 'auth' is global and stable.
 
   // Utility function to display a custom modal alert
   const showCustomModal = (message) => {
@@ -129,6 +131,7 @@ function App() {
   };
 
   // Function to update user's online/offline presence in Firestore
+  // Removed 'db' and 'appId' from dependencies as they are globally stable and don't trigger re-renders
   const updatePresence = useCallback(async (currentRoomId, userId, userName, status) => {
     if (!db || !userId) return; // Ensure Firestore and user ID are available
 
@@ -160,7 +163,7 @@ function App() {
     } catch (error) {
       console.error("Error updating presence:", error);
     }
-  }, [db, appId]); // Dependencies for this useCallback
+  }, []); // Dependencies for this useCallback
 
   // Effect to listen for real-time updates on room users (presence)
   useEffect(() => {
@@ -187,7 +190,7 @@ function App() {
       unsubscribe();
       // Note: User offline status is handled in handleLeaveRoom for explicit control.
     };
-  }, [db, roomId, currentView, myUserId, appId]); // Dependencies for this effect
+  }, [roomId, currentView, myUserId, updatePresence]); // Removed 'db' and 'appId' from dependencies. Added updatePresence.
 
 
   // Function to handle joining a room
@@ -328,7 +331,7 @@ function App() {
 
     // Clean up the listener when the component unmounts or dependencies change
     return () => unsubscribe();
-  }, [db, roomId, currentView, myUserId, appId]);
+  }, [roomId, currentView, myUserId]); // Removed 'db' and 'appId' from dependencies.
 
   // WebRTC servers configuration (STUN servers for NAT traversal)
   const servers = {
@@ -554,13 +557,21 @@ function App() {
       try {
         const callDocRef = doc(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState`, 'currentCall');
         // Delete all ICE candidates from both users involved in the call
-        const usersInCall = Object.keys(roomUsers);
-        for (const userIdInCall of usersInCall) {
-          const candidatesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState/${userIdInCall}/candidates`);
-          const candidatesSnapshot = await getDocs(candidatesCollectionRef);
-          candidatesSnapshot.forEach(async (candidateDoc) => {
-            await deleteDoc(candidateDoc.ref);
-          });
+        // We need to know who the other user is to clear their candidates too if they initiated.
+        const otherUserId = Object.keys(roomUsers).find(id => id !== myUserId);
+
+        const myCandidatesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState/${myUserId}/candidates`);
+        const myCandidatesSnapshot = await getDocs(myCandidatesCollectionRef);
+        myCandidatesSnapshot.forEach(async (candidateDoc) => {
+          await deleteDoc(candidateDoc.ref);
+        });
+
+        if (otherUserId) {
+            const otherCandidatesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState/${otherUserId}/candidates`);
+            const otherCandidatesSnapshot = await getDocs(otherCandidatesCollectionRef);
+            otherCandidatesSnapshot.forEach(async (candidateDoc) => {
+              await deleteDoc(candidateDoc.ref);
+            });
         }
         await deleteDoc(callDocRef); // Delete the main call document
       } catch (error) {
@@ -578,6 +589,7 @@ function App() {
   };
 
   // Effect to listen for incoming call offers or call state changes from Firestore
+  // Removed 'db' and 'appId' from dependencies. Added `roomUsers` for re-evaluation when users change.
   useEffect(() => {
     // Only run if Firebase is ready and user is in a room
     if (!db || !roomId || !myUserId || !isAuthReady) return;
@@ -616,10 +628,11 @@ function App() {
 
     // Clean up the listener when component unmounts or dependencies change
     return () => unsubscribeCallState();
-  }, [db, roomId, myUserId, isAuthReady, isCalling, isCallActive, roomUsers, hangupCall]);
+  }, [roomId, myUserId, isAuthReady, isCalling, isCallActive, roomUsers, hangupCall, setCallInitiatorId]);
 
 
   // Callback function to listen for remote ICE candidates
+  // Removed 'db' and 'appId' from dependencies.
   const listenForRemoteIceCandidates = useCallback(async (remotePeerId, pc) => {
     if (!db || !roomId || !pc || !remotePeerId) return;
 
@@ -645,7 +658,7 @@ function App() {
 
     // Clean up the listener when component unmounts or dependencies change
     return () => unsubscribeCandidates();
-  }, [db, roomId, appId]); // Dependencies for this useCallback
+  }, [roomId]); // Removed 'db' and 'appId' from dependencies.
 
   // Function to toggle local video stream on/off
   const toggleLocalVideo = () => {
@@ -921,7 +934,7 @@ function App() {
                       {/* Mic On/Off Icons */}
                       {isLocalAudioMuted ? (
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-mic-off">
-                          <line x1="2" x2="22" y1="2" y2="22"/><path d="M10 9v3a6 6 0 0 0 8.73 4.13"/><path d="M16 16v2a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2"/><path d="M9.36 5.86A7.63 7.63 0 0 0 9 12v1a3 3 0 0 0 5.12 2.12"/><line x1="12" x2="12" y1="2" y2="6"/>
+                          <line x1="2" x2="22" y1="2" y2="22"/><path d="M10 9v3a6 6 0 0 0 8.73 4.13"/><path d="M16 16v2a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2"/><path d="M9.36 5.86A7.63 7.63 0 0 0 9 12v1a3 3 0 0 0 5.12 2.12"/><line x1="12" x2="12" y1="19" y2="22"/>
                         </svg>
                       ) : (
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-mic">
