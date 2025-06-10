@@ -217,60 +217,34 @@ function App() {
 
     // Handle leaving the room on page reload or navigation away
     const handleBeforeUnload = async () => {
-      // Use navigator.sendBeacon or a small fetch request for reliable offline status update
-      // This is a simple fire-and-forget, no awaiting as the page is closing
       if (myUserId && roomId && userName && db) {
-        const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, roomId);
-        const userStatusRef = doc(roomDocRef, 'users', myUserId);
-        // Using setDoc with merge: true to avoid overwriting the whole document if it exists,
-        // but it's okay for presence as we explicitly delete on leave.
-        // For sendBeacon, we might stringify simple data if complex objects are sent.
-        const payload = JSON.stringify({
-            userId: myUserId,
-            userName: userName,
-            status: 'offline',
-            roomId: roomId,
-            timestamp: Date.now()
-        });
+        // These are fire-and-forget operations, no awaiting as the page is closing.
+        // We use Promise.allSettled to ensure both attempts are made.
+        // Direct references to the document path are used, removing unused 'userStatusRef' and 'payload'.
+        const userDocPath = `artifacts/${appId}/public/data/rooms/${roomId}/users/${myUserId}`;
+        const messagesCollectionPath = `artifacts/${appId}/public/data/rooms/${roomId}/messages`;
 
-        // A tiny fetch to indicate offline status, fire-and-forget
-        // This is not guaranteed to complete, but better than nothing
-        fetch(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents:runQuery`, {
-            method: 'POST',
+        Promise.allSettled([
+          fetch(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/${userDocPath}`, {
+            method: 'DELETE',
             keepalive: true, // Crucial for requests during page unload
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
+          }).catch(e => console.warn("Failed to delete presence on unload:", e)),
+
+          fetch(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/${messagesCollectionPath}:add`, {
+            method: 'POST',
+            keepalive: true,
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                structuredQuery: {
-                    from: [{ collectionId: `artifacts/${appId}/public/data/rooms/${roomId}/users` }],
-                    where: { fieldFilter: { field: { fieldPath: '__name__' }, op: 'EQUAL', value: { stringValue: myUserId } } }
-                }
+              fields: {
+                senderId: { stringValue: 'system' },
+                senderName: { stringValue: 'System' },
+                text: { stringValue: `${userName} Left` },
+                timestamp: { timestampValue: new Date().toISOString() } // Use ISO string for Firestore Timestamp
+              }
             })
-        }).then(response => response.json())
-          .then(data => {
-            if (data && data[0]?.document?.name) {
-              const docPath = data[0].document.name.split('/documents/')[1];
-              fetch(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/${docPath}`, {
-                method: 'DELETE',
-                keepalive: true,
-                headers: { 'Content-Type': 'application/json' },
-              });
-              fetch(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/artifacts/${appId}/public/data/rooms/${roomId}/messages:add`, {
-                method: 'POST',
-                keepalive: true,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  fields: {
-                    senderId: { stringValue: 'system' },
-                    senderName: { stringValue: 'System' },
-                    text: { stringValue: `${userName} Left` },
-                    timestamp: { timestampValue: new Date().toISOString() }
-                  }
-                })
-              });
-            }
-          }).catch(e => console.error("SendBeacon-like update failed:", e));
+          }).catch(e => console.warn("Failed to add 'Left' message on unload:", e))
+        ]);
       }
     };
 
@@ -282,7 +256,7 @@ function App() {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('unload', handleBeforeUnload);
     };
-  }, [roomId, myUserId, userName, db, showCustomModal, updatePresence]); // Added dependencies for clarity and correctness
+  }, [roomId, myUserId, userName, showCustomModal]); // Removed 'db' and 'appId' as they are global constants.
 
   // Effect to listen for real-time updates on room users (presence)
   useEffect(() => {
