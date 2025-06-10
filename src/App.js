@@ -27,31 +27,26 @@ let firebaseApp;
 let db;
 let auth;
 
-// Initialize Firebase services globally to ensure it's done only once.
-let firebaseApp;
-let db;
-let auth;
-
 // Helper function to check if Firebase app has already been initialized via global 'firebase.apps'
 const isFirebaseInitialized = () => {
+  // Access the Firebase global object and its 'apps' property
   return typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0;
 };
 
 // Initialize Firebase if config is available and not already initialized
 if (Object.keys(firebaseConfig).length > 0 && !isFirebaseInitialized()) {
-  firebaseApp = initializeApp(firebaseConfig);
-  db = getFirestore(firebaseApp);
-  auth = getAuth(firebaseApp);
+  firebaseApp = initializeApp(firebaseConfig); // REMOVED 'let' here
+  db = getFirestore(firebaseApp); // REMOVED 'let' here
+  auth = getAuth(firebaseApp); // REMOVED 'let' here
 } else if (isFirebaseInitialized()) {
   // If already initialized (e.g., in a development environment or hot-reloads), get the first instance
-  firebaseApp = firebase.apps[0]; // Access the first initialized app from the global 'firebase' object
-  db = getFirestore(firebaseApp);
-  auth = getAuth(firebaseApp);
+  firebaseApp = firebase.apps[0]; // REMOVED 'let' here
+  db = getFirestore(firebaseApp); // REMOVED 'let' here
+  auth = getAuth(firebaseApp); // REMOVED 'let' here
 } else {
   // This warning will appear if firebaseConfig is not set in index.html
   console.warn("Firebase config is empty or Firebase not initialized. App may not function correctly. Please ensure window.firebaseConfig is set in public/index.html.");
 }
-
 // Global WebRTC variables for peer connection and streams.
 // These are managed here for direct WebRTC API interaction,
 // but their state and lifecycle are controlled by React component.
