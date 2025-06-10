@@ -1,4 +1,4 @@
-Drimport React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import {
@@ -26,10 +26,6 @@ const appId = window.appId || 'default-app-id'; // Assuming appId is also set in
 let firebaseApp;
 let db;
 let auth;
-
-// The correct way to check if a Firebase app has already been initialized via NPM imports
-// is to use getApps().length
-// No need for a separate helper function to avoid ESLint warnings.
 
 // Initialize Firebase if config is available and no app has been initialized yet
 if (Object.keys(firebaseConfig).length > 0 && !getApps().length) {
