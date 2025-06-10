@@ -233,7 +233,7 @@ function App() {
     setIsLocalVideoMuted(false);
     setIsLocalAudioMuted(false);
     setCurrentView('chat'); // Return to chat view
-  }, [db, roomId, myUserId, roomUsers, setIsCalling, setIsCallActive, setCallInitiatorId, setIsLocalVideoMuted, setIsLocalAudioMuted, setCurrentView]); // Added all state setters to deps to satisfy exhaustive-deps
+  }, [roomId, myUserId, roomUsers, setIsCalling, setIsCallActive, setCallInitiatorId, setIsLocalVideoMuted, setIsLocalAudioMuted, setCurrentView]); // Added all state setters to deps to satisfy exhaustive-deps
 
 
   // Effect to listen for real-time updates on room users (presence)
