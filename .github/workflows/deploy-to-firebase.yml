@@ -1,0 +1,35 @@
+name: Deploy to Firebase Hosting
+
+on:
+  push:
+    branches:
+      - main # This means the automation runs when you update your 'main' branch
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest # The type of virtual computer GitHub uses for this job
+
+    steps:
+      - name: Get your project code
+        uses: actions/checkout@v3 # This step downloads your code from GitHub
+
+      - name: Set up software (Node.js)
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16' # Tells GitHub to use Node.js version 16 (ensure this is compatible with React Scripts 5.0.1 and Firebase SDKs 9.6.1 used in package.json)
+
+      - name: Install necessary tools
+        run: npm install # This installs all the dependencies listed in your package.json
+
+      - name: Prepare your app for the web (Build React App)
+        run: npm run build # This creates the optimized 'build' folder for your website
+
+      - name: Send your app to Firebase
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: '${{ secrets.GITHUB_TOKEN }}' # GitHub's own token for repository access
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}' # The secret key you added in Part B (NOTE THE NAME CHANGE)
+          projectId: 'parivideo-c4a37' # <<-- IMPORTANT: CHANGE THIS!
+          channelId: live # This means it will go to your live website address
+        env:
+          FIREBASE_CLI_PREVIEWS: hostingchannels # Needed for some newer Firebase CLI features in the action
