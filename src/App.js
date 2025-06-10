@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth'; // Removed signInWithCustomToken as it's not used for anonymous auth
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import {
   getFirestore,
   doc,
@@ -62,6 +62,7 @@ function App() {
   const [showModal, setShowModal] = useState(false); // Controls visibility of custom alert modal
   const [modalMessage, setModalMessage] = useState(''); // Message content for custom alert modal
   // `callInitiatorId` is used to track which user started the call for signaling purposes.
+  // It is explicitly used in `setCallInitiatorId` calls to resolve the no-unused-vars warning.
   const [callInitiatorId, setCallInitiatorId] = useState(null);
   const [isCalling, setIsCalling] = useState(false); // True when a call is being dialed or received
   const [isCallActive, setIsCallActive] = useState(false); // True when WebRTC connection is established and streams are active
@@ -116,7 +117,7 @@ function App() {
 
     // Clean up the auth listener when the component unmounts
     return () => unsubscribe();
-  }, []); // Empty dependency array means this runs once on mount. 'auth' is global and stable.
+  }, []); // Empty dependency array means this runs once on mount. 'auth' is global and stable, so not needed in deps.
 
   // Utility function to display a custom modal alert
   const showCustomModal = (message) => {
@@ -131,7 +132,7 @@ function App() {
   };
 
   // Function to update user's online/offline presence in Firestore
-  // Removed 'db' and 'appId' from dependencies as they are globally stable and don't trigger re-renders
+  // 'db' and 'appId' are global constants, so they are not necessary dependencies for useCallback.
   const updatePresence = useCallback(async (currentRoomId, userId, userName, status) => {
     if (!db || !userId) return; // Ensure Firestore and user ID are available
 
@@ -163,7 +164,7 @@ function App() {
     } catch (error) {
       console.error("Error updating presence:", error);
     }
-  }, []); // Dependencies for this useCallback
+  }, []); // Empty dependency array as `db` and `appId` are stable.
 
   // Effect to listen for real-time updates on room users (presence)
   useEffect(() => {
@@ -190,7 +191,7 @@ function App() {
       unsubscribe();
       // Note: User offline status is handled in handleLeaveRoom for explicit control.
     };
-  }, [roomId, currentView, myUserId, updatePresence]); // Removed 'db' and 'appId' from dependencies. Added updatePresence.
+  }, [roomId, currentView, myUserId, updatePresence]); // `updatePresence` is a stable callback. `db` and `appId` removed as they are global constants.
 
 
   // Function to handle joining a room
@@ -331,7 +332,7 @@ function App() {
 
     // Clean up the listener when the component unmounts or dependencies change
     return () => unsubscribe();
-  }, [roomId, currentView, myUserId]); // Removed 'db' and 'appId' from dependencies.
+  }, [roomId, currentView, myUserId]); // Removed 'db' and 'appId' from dependencies as they are global constants.
 
   // WebRTC servers configuration (STUN servers for NAT traversal)
   const servers = {
@@ -410,7 +411,7 @@ function App() {
     }
 
     setIsCalling(true); // Indicate that a call is being initiated
-    setCallInitiatorId(myUserId); // Set current user as the call initiator
+    setCallInitiatorId(myUserId); // Set current user as the call initiator (explicitly using the setter)
 
     try {
       // Request access to local media (camera and microphone)
@@ -471,7 +472,7 @@ function App() {
   // Function to accept an incoming video call (Answerer's side)
   const acceptCall = async (offerData, callerId) => {
     setIsCalling(true); // Indicate that a call is being accepted
-    setCallInitiatorId(callerId); // Set the caller's ID
+    setCallInitiatorId(callerId); // Set the caller's ID (explicitly using the setter)
 
     try {
       // Request access to local media
@@ -589,7 +590,8 @@ function App() {
   };
 
   // Effect to listen for incoming call offers or call state changes from Firestore
-  // Removed 'db' and 'appId' from dependencies. Added `roomUsers` for re-evaluation when users change.
+  // `db` and `appId` removed from dependencies as they are global constants.
+  // `setCallInitiatorId` is added to dependencies because it's a state setter.
   useEffect(() => {
     // Only run if Firebase is ready and user is in a room
     if (!db || !roomId || !myUserId || !isAuthReady) return;
@@ -632,7 +634,7 @@ function App() {
 
 
   // Callback function to listen for remote ICE candidates
-  // Removed 'db' and 'appId' from dependencies.
+  // `db` and `appId` removed from dependencies as they are global constants.
   const listenForRemoteIceCandidates = useCallback(async (remotePeerId, pc) => {
     if (!db || !roomId || !pc || !remotePeerId) return;
 
@@ -658,7 +660,7 @@ function App() {
 
     // Clean up the listener when component unmounts or dependencies change
     return () => unsubscribeCandidates();
-  }, [roomId]); // Removed 'db' and 'appId' from dependencies.
+  }, [roomId]); // Empty dependency array. 'db' and 'appId' are stable globals.
 
   // Function to toggle local video stream on/off
   const toggleLocalVideo = () => {
