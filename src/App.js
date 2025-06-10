@@ -98,16 +98,19 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // Utility function to display a custom modal alert
-  const showCustomModal = (message) => {
-    setModalMessage(message);
-    setShowModal(true);
-  };
+// Utility function to display a custom modal alert
+// Wrapped in useCallback to make it a stable function for useEffect dependencies
+const showCustomModal = useCallback((message) => {
+  setModalMessage(message);
+  setShowModal(true);
+}, [setModalMessage, setShowModal]); // Dependencies are the state setters, which are stable
 
-  // Utility function to close the custom modal alert
-  const closeCustomModal = () => {
-    setShowModal(false);
-    setModalMessage('');
+// Utility function to close the custom modal alert
+// Wrapped in useCallback for consistency
+const closeCustomModal = useCallback(() => {
+  setShowModal(false);
+  setModalMessage('');
+}, [setShowModal, setModalMessage]); // Dependencies are the state setters, which are stable
   };
 
   // Function to update user's online/offline presence in Firestore
