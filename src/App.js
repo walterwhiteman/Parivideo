@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { initializeApp } from 'firebase/app'; // Removed getApps here
+import { initializeApp, getApps } from 'firebase/app'; // <<< Ensure getApps is imported here!
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import {
   getFirestore,
@@ -27,22 +27,20 @@ let firebaseApp;
 let db;
 let auth;
 
-// Helper function to check if Firebase app has already been initialized via global 'firebase.apps'
-const isFirebaseInitialized = () => {
-  // Access the Firebase global object and its 'apps' property
-  return typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0;
-};
+// The correct way to check if a Firebase app has already been initialized via NPM imports
+// is to use getApps().length
+// No need for a separate helper function to avoid ESLint warnings.
 
-// Initialize Firebase if config is available and not already initialized
-if (Object.keys(firebaseConfig).length > 0 && !isFirebaseInitialized()) {
-  firebaseApp = initializeApp(firebaseConfig); // REMOVED 'let' here
-  db = getFirestore(firebaseApp); // REMOVED 'let' here
-  auth = getAuth(firebaseApp); // REMOVED 'let' here
-} else if (isFirebaseInitialized()) {
-  // If already initialized (e.g., in a development environment or hot-reloads), get the first instance
-  firebaseApp = firebase.apps[0]; // REMOVED 'let' here
-  db = getFirestore(firebaseApp); // REMOVED 'let' here
-  auth = getAuth(firebaseApp); // REMOVED 'let' here
+// Initialize Firebase if config is available and no app has been initialized yet
+if (Object.keys(firebaseConfig).length > 0 && !getApps().length) {
+  firebaseApp = initializeApp(firebaseConfig);
+  db = getFirestore(firebaseApp);
+  auth = getAuth(firebaseApp);
+} else if (getApps().length > 0) {
+  // If an app is already initialized (e.g., during hot-reloads in development), get the first instance
+  firebaseApp = getApps()[0]; // Get the first initialized app
+  db = getFirestore(firebaseApp);
+  auth = getAuth(firebaseApp);
 } else {
   // This warning will appear if firebaseConfig is not set in index.html
   console.warn("Firebase config is empty or Firebase not initialized. App may not function correctly. Please ensure window.firebaseConfig is set in public/index.html.");
