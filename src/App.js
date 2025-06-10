@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { initializeApp, getApps } from 'firebase/app'; // <<< Ensure getApps is imported here!
+import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import {
   getFirestore,
@@ -65,7 +65,6 @@ function App() {
   const [showModal, setShowModal] = useState(false); // Controls visibility of custom alert modal
   const [modalMessage, setModalMessage] = useState(''); // Message content for custom alert modal
   // `callInitiatorId` is used to track which user started the call for signaling purposes.
-  // Explicitly used in a log to satisfy `no-unused-vars` linter rule.
   const [callInitiatorId, setCallInitiatorId] = useState(null);
   const [isCalling, setIsCalling] = useState(false); // True when a call is being dialed or received
   const [isCallActive, setIsCallActive] = useState(false); // True when WebRTC connection is established and streams are active
@@ -84,7 +83,7 @@ function App() {
   // eslint-disable-next-line
   useEffect(() => {
     if (callInitiatorId) {
-      console.log('Call initiated by:', callInitiatorId);
+      // console.log('Call initiated by:', callInitiatorId); // Keeping this commented out as it's not strictly necessary for functionality
     }
   }, [callInitiatorId]);
 
@@ -99,38 +98,6 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // Effect for Firebase Authentication setup
-  useEffect(() => {
-    // Ensure auth object is available before proceeding
-    if (!auth) {
-      console.error("Firebase Auth not initialized. Check firebaseConfig in public/index.html.");
-      return;
-    }
-
-    // Set up an authentication state change listener
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        // If a user is logged in, set their UID
-        setMyUserId(user.uid);
-        console.log("Firebase Auth Ready. User ID:", user.uid);
-      } else {
-        // If no user, attempt anonymous sign-in
-        try {
-          await signInAnonymously(auth);
-          console.log("Signed in anonymously.");
-        } catch (error) {
-          console.error("Firebase anonymous sign-in failed:", error);
-          showCustomModal(`Firebase sign-in failed: ${error.message}`);
-        }
-      }
-      // Mark authentication as ready once the initial check is complete
-      setIsAuthReady(true);
-    });
-
-    // Clean up the auth listener when the component unmounts
-    return () => unsubscribe();
-  }, []); // Empty dependency array means this runs once on mount. 'auth' is global and stable, so not needed in deps.
-
   // Utility function to display a custom modal alert
   const showCustomModal = (message) => {
     setModalMessage(message);
@@ -144,28 +111,23 @@ function App() {
   };
 
   // Function to update user's online/offline presence in Firestore
-  // Removed 'db' and 'appId' from dependencies as they are globally stable and don't trigger re-renders
   const updatePresence = useCallback(async (currentRoomId, userId, userName, status) => {
-    if (!db || !userId) return; // Ensure Firestore and user ID are available
+    if (!db || !userId) return;
 
     const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, currentRoomId);
-    const userStatusRef = doc(roomDocRef, 'users', userId); // Reference to the user's presence document
+    const userStatusRef = doc(roomDocRef, 'users', userId);
 
     try {
       if (status === 'online') {
-        // Set user's presence to online with their name and last seen timestamp
         await setDoc(userStatusRef, { userName: userName, lastSeen: serverTimestamp() });
-        // Add a system message to the chat indicating the user joined
         await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${currentRoomId}/messages`), {
-          senderId: 'system', // Special ID for system messages
+          senderId: 'system',
           senderName: 'System',
           text: `${userName} Joined`,
           timestamp: serverTimestamp(),
         });
       } else if (status === 'offline') {
-        // Delete the user's presence document when they go offline
         await deleteDoc(userStatusRef);
-        // Add a system message to the chat indicating the user left
         await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${currentRoomId}/messages`), {
           senderId: 'system',
           senderName: 'System',
@@ -176,38 +138,31 @@ function App() {
     } catch (error) {
       console.error("Error updating presence:", error);
     }
-  }, []); // Empty dependency array as `db` and `appId` are stable.
+  }, []);
 
   // Function to hangup/end the video call, wrapped in useCallback
   const hangupCall = useCallback(async () => {
-    // Close peer connection if it exists
     if (peerConnection) {
       peerConnection.close();
       peerConnection = null;
     }
-    // Stop and clear local media stream tracks
     if (localStream) {
       localStream.getTracks().forEach(track => track.stop());
       localStream = null;
     }
-    // Clear remote media stream
     if (remoteStream) {
       remoteStream.getTracks().forEach(track => track.stop());
       remoteStream = null;
     }
 
-    // Stop and clear call timer
     if (callTimerRef.current) {
       clearInterval(callTimerRef.current);
       setCallTimer(0);
     }
 
-    // Clear call state in Firestore
-    if (db && roomId && myUserId) { // Ensure myUserId is available before clearing candidates
+    if (db && roomId && myUserId) {
       try {
         const callDocRef = doc(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState`, 'currentCall');
-        // Delete all ICE candidates from both users involved in the call
-        // We need to know who the other user is to clear their candidates too if they initiated.
         const otherUserId = Object.keys(roomUsers).find(id => id !== myUserId);
 
         const myCandidatesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState/${myUserId}/candidates`);
@@ -223,58 +178,141 @@ function App() {
               await deleteDoc(candidateDoc.ref);
             });
         }
-        await deleteDoc(callDocRef); // Delete the main call document
+        await deleteDoc(callDocRef);
       } catch (error) {
         console.error("Error clearing call state in Firestore:", error);
       }
     }
 
-    // Reset all call-related state variables
     setIsCalling(false);
     setIsCallActive(false);
     setCallInitiatorId(null);
     setIsLocalVideoMuted(false);
     setIsLocalAudioMuted(false);
-    setCurrentView('chat'); // Return to chat view
-  }, [roomId, myUserId, roomUsers, setIsCalling, setIsCallActive, setCallInitiatorId, setIsLocalVideoMuted, setIsLocalAudioMuted, setCurrentView]); // Added all state setters to deps to satisfy exhaustive-deps
+    setCurrentView('chat');
+  }, [roomId, myUserId, roomUsers, setIsCalling, setIsCallActive, setCallInitiatorId, setIsLocalVideoMuted, setIsLocalAudioMuted, setCurrentView]);
 
+  // Effect for Firebase Authentication setup and Room Leaving Logic
+  useEffect(() => {
+    if (!auth) {
+      console.error("Firebase Auth not initialized. Check firebaseConfig in public/index.html.");
+      return;
+    }
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setMyUserId(user.uid);
+        console.log("Firebase Auth Ready. User ID:", user.uid);
+      } else {
+        try {
+          await signInAnonymously(auth);
+          console.log("Signed in anonymously.");
+        } catch (error) {
+          console.error("Firebase anonymous sign-in failed:", error);
+          showCustomModal(`Firebase sign-in failed: ${error.message}`);
+        }
+      }
+      setIsAuthReady(true);
+    });
+
+    // Handle leaving the room on page reload or navigation away
+    const handleBeforeUnload = async () => {
+      // Use navigator.sendBeacon or a small fetch request for reliable offline status update
+      // This is a simple fire-and-forget, no awaiting as the page is closing
+      if (myUserId && roomId && userName && db) {
+        const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, roomId);
+        const userStatusRef = doc(roomDocRef, 'users', myUserId);
+        // Using setDoc with merge: true to avoid overwriting the whole document if it exists,
+        // but it's okay for presence as we explicitly delete on leave.
+        // For sendBeacon, we might stringify simple data if complex objects are sent.
+        const payload = JSON.stringify({
+            userId: myUserId,
+            userName: userName,
+            status: 'offline',
+            roomId: roomId,
+            timestamp: Date.now()
+        });
+
+        // A tiny fetch to indicate offline status, fire-and-forget
+        // This is not guaranteed to complete, but better than nothing
+        fetch(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents:runQuery`, {
+            method: 'POST',
+            keepalive: true, // Crucial for requests during page unload
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                structuredQuery: {
+                    from: [{ collectionId: `artifacts/${appId}/public/data/rooms/${roomId}/users` }],
+                    where: { fieldFilter: { field: { fieldPath: '__name__' }, op: 'EQUAL', value: { stringValue: myUserId } } }
+                }
+            })
+        }).then(response => response.json())
+          .then(data => {
+            if (data && data[0]?.document?.name) {
+              const docPath = data[0].document.name.split('/documents/')[1];
+              fetch(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/${docPath}`, {
+                method: 'DELETE',
+                keepalive: true,
+                headers: { 'Content-Type': 'application/json' },
+              });
+              fetch(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/artifacts/${appId}/public/data/rooms/${roomId}/messages:add`, {
+                method: 'POST',
+                keepalive: true,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  fields: {
+                    senderId: { stringValue: 'system' },
+                    senderName: { stringValue: 'System' },
+                    text: { stringValue: `${userName} Left` },
+                    timestamp: { timestampValue: new Date().toISOString() }
+                  }
+                })
+              });
+            }
+          }).catch(e => console.error("SendBeacon-like update failed:", e));
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('unload', handleBeforeUnload); // For older browsers/more reliability
+
+    return () => {
+      unsubscribeAuth();
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('unload', handleBeforeUnload);
+    };
+  }, [roomId, myUserId, userName, db, showCustomModal, updatePresence]); // Added dependencies for clarity and correctness
 
   // Effect to listen for real-time updates on room users (presence)
   useEffect(() => {
-    // Only set up listener if Firestore, roomId, and myUserId are available,
-    // and the app is in a chat or video call view.
     if (!db || !roomId || (currentView !== 'chat' && currentView !== 'videoCall' && currentView !== 'incomingCall') || !myUserId) return;
 
     const roomUsersRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/users`);
-    const q = query(roomUsersRef); // Query all users in the room's 'users' sub-collection
+    const q = query(roomUsersRef);
 
-    // Set up real-time listener for user presence changes
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const usersData = {};
       snapshot.forEach((doc) => {
-        usersData[doc.id] = doc.data(); // Populate usersData with user IDs and their data
+        usersData[doc.id] = doc.data();
       });
-      setRoomUsers(usersData); // Update state with current room users
+      setRoomUsers(usersData);
     }, (error) => {
       console.error("Error fetching room users:", error);
     });
 
-    // Clean up the listener when the component unmounts or dependencies change
     return () => {
       unsubscribe();
-      // Note: User offline status is handled in handleLeaveRoom for explicit control.
     };
-  }, [roomId, currentView, myUserId, updatePresence, setRoomUsers]); // Removed 'db' and 'appId'. Added setRoomUsers for exhaustive-deps.
+  }, [roomId, currentView, myUserId, updatePresence, setRoomUsers]);
 
 
   // Function to handle joining a room
   const handleJoinRoom = async () => {
-    // Validate input fields
     if (!roomId.trim() || !userName.trim()) {
       showCustomModal("Please enter both Room Code and User Name.");
       return;
     }
-    // Ensure Firebase is ready
     if (!isAuthReady || !myUserId || !db) {
       showCustomModal("Firebase is not ready. Please wait a moment.");
       return;
@@ -287,28 +325,23 @@ function App() {
       let existingUsersCount = 0;
 
       if (roomDoc.exists()) {
-        // If room exists, count current active users
         const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/users`);
         const usersSnapshot = await getDocs(usersCollectionRef);
         existingUsersCount = usersSnapshot.size;
 
-        // Enforce 2-user limit
         if (existingUsersCount >= 2) {
           showCustomModal("This room is full. Please try another room code.");
           return;
         }
       } else {
-        // If room does not exist, create it
         await setDoc(roomDocRef, {
-          name: roomId, // Room name is the code itself
+          name: roomId,
           createdAt: serverTimestamp(),
         });
       }
 
-      // Update user's presence to 'online' in the room
       await updatePresence(roomId, myUserId, userName, 'online');
 
-      // Transition to the chat view
       setCurrentView('chat');
 
     } catch (error) {
@@ -320,19 +353,17 @@ function App() {
   // Function to handle leaving a room
   const handleLeaveRoom = async () => {
     if (isCallActive) {
-      await hangupCall(); // End any active video call
+      await hangupCall();
     }
 
     if (myUserId && roomId) {
-      await updatePresence(roomId, myUserId, userName, 'offline'); // Set user's presence to offline
+      await updatePresence(roomId, myUserId, userName, 'offline');
     }
-    // Reset all relevant state variables
     setRoomId('');
     setUserName('');
     setMessages([]);
     setRoomUsers({});
-    setCurrentView('login'); // Return to login screen
-    // Clear WebRTC related states and resources
+    setCurrentView('login');
     setIsCalling(false);
     setIsCallActive(false);
     setCallInitiatorId(null);
@@ -348,7 +379,6 @@ function App() {
       peerConnection.close();
       peerConnection = null;
     }
-    // Clear call timer
     if (callTimerRef.current) {
       clearInterval(callTimerRef.current);
       setCallTimer(0);
@@ -357,10 +387,9 @@ function App() {
 
   // Function to handle sending a chat message
   const handleSendMessage = async (e) => {
-    e.preventDefault(); // Prevent default form submission
-    if (!newMessage.trim()) return; // Don't send empty messages
+    e.preventDefault();
+    if (!newMessage.trim()) return;
 
-    // Ensure necessary data is available
     if (!db || !roomId || !myUserId || !userName) {
       showCustomModal("Chat not ready. Please try again.");
       return;
@@ -368,14 +397,13 @@ function App() {
 
     try {
       const messagesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/messages`);
-      // Add the new message to Firestore
       await addDoc(messagesCollectionRef, {
         senderId: myUserId,
         senderName: userName,
         text: newMessage,
-        timestamp: serverTimestamp(), // Use server timestamp for consistent ordering
+        timestamp: serverTimestamp(),
       });
-      setNewMessage(''); // Clear the input field
+      setNewMessage('');
     } catch (error) {
       console.error("Error sending message:", error);
       showCustomModal(`Failed to send message: ${error.message}`);
@@ -384,86 +412,72 @@ function App() {
 
   // Effect to listen for real-time chat messages
   useEffect(() => {
-    // Only set up listener if Firestore, roomId, and myUserId are available,
-    // and the app is in a chat or video call view.
     if (!db || !roomId || (currentView !== 'chat' && currentView !== 'videoCall') || !myUserId) return;
 
     const messagesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/messages`);
-    // Query messages, ordering them by timestamp
     const q = query(messagesCollectionRef, orderBy('timestamp'));
 
-    // Set up real-time listener for message changes
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedMessages = snapshot.docs.map(doc => ({
         id: doc.id,
-        ...doc.data() // Include all document data
+        ...doc.data()
       }));
-      setMessages(fetchedMessages); // Update state with new messages
+      setMessages(fetchedMessages);
     }, (error) => {
       console.error("Error fetching messages:", error);
     });
 
-    // Clean up the listener when the component unmounts or dependencies change
     return () => unsubscribe();
-  }, [roomId, currentView, myUserId]); // Removed 'db' and 'appId' from dependencies as they are global constants.
+  }, [roomId, currentView, myUserId]);
 
   // WebRTC servers configuration (STUN servers for NAT traversal)
   const servers = {
     iceServers: [
       { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
     ],
-    iceCandidatePoolSize: 10, // Number of ICE candidates to gather
+    iceCandidatePoolSize: 10,
   };
 
   // Function to create a new RTCPeerConnection instance
   const createPeerConnection = async () => {
-    // Close any existing peer connection before creating a new one
     if (peerConnection) {
       peerConnection.close();
     }
     peerConnection = new RTCPeerConnection(servers);
 
-    // Add local media stream tracks to the peer connection
     if (localStream) {
       localStream.getTracks().forEach(track => {
         peerConnection.addTrack(track, localStream);
       });
     }
 
-    // Event handler for when a remote track is received
     peerConnection.ontrack = (event) => {
       if (remoteVideoRef.current && event.streams[0]) {
-        remoteVideoRef.current.srcObject = event.streams[0]; // Attach remote stream to video element
-        remoteStream = event.streams[0]; // Store remote stream globally
+        remoteVideoRef.current.srcObject = event.streams[0];
+        remoteStream = event.streams[0];
       }
     };
 
-    // Event handler for when ICE candidates are generated
     peerConnection.onicecandidate = async (event) => {
       if (event.candidate) {
-        // Send generated ICE candidate to Firestore for signaling
         const candidatesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState/${myUserId}/candidates`);
         await addDoc(candidatesCollectionRef, event.candidate.toJSON());
       }
     };
 
-    // Event handler for peer connection state changes
     peerConnection.onconnectionstatechange = (event) => {
       console.log('Peer connection state:', peerConnection.connectionState);
       if (peerConnection.connectionState === 'connected') {
-        setIsCallActive(true); // Mark call as active
-        // Start call timer
+        setIsCallActive(true);
         callTimerRef.current = setInterval(() => {
           setCallTimer(prevTime => prevTime + 1);
         }, 1000);
       } else if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
-        // If connection is lost, show alert and hang up
         showCustomModal("Video call disconnected.");
         hangupCall();
       }
     };
 
-    // Event handler for signaling state changes
     peerConnection.onsignalingstatechange = (event) => {
       console.log('Signaling state:', peerConnection.signalingState);
     };
@@ -471,35 +485,30 @@ function App() {
 
   // Function to initiate a video call (Caller's side)
   const startCall = async () => {
-    // Check if another user is present in the room
     const otherUserIds = Object.keys(roomUsers).filter(id => id !== myUserId);
     if (otherUserIds.length === 0) {
       showCustomModal("No other user in the room to call.");
       return;
     }
-    // Prevent starting a call if one is already in progress or being set up
     if (isCalling || isCallActive) {
       showCustomModal("A call is already in progress or being set up.");
       return;
     }
 
-    setIsCalling(true); // Indicate that a call is being initiated
-    setCallInitiatorId(myUserId); // Set current user as the call initiator
+    setIsCalling(true);
+    setCallInitiatorId(myUserId);
 
     try {
-      // Request access to local media (camera and microphone)
       localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       if (localVideoRef.current) {
-        localVideoRef.current.srcObject = localStream; // Display local video stream
+        localVideoRef.current.srcObject = localStream;
       }
 
-      await createPeerConnection(); // Create a new peer connection
+      await createPeerConnection();
 
-      // Create an offer (SDP)
       const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer); // Set local description
+      await peerConnection.setLocalDescription(offer);
 
-      // Save the offer to Firestore for signaling
       const callDocRef = doc(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState`, 'currentCall');
       await setDoc(callDocRef, {
         offer: {
@@ -508,63 +517,54 @@ function App() {
         },
         callerId: myUserId,
         timestamp: serverTimestamp(),
-        status: 'pending', // Set call status to pending
+        status: 'pending',
       });
 
-      // Listen for the remote answer from Firestore
       const unsubscribeAnswer = onSnapshot(callDocRef, async (snapshot) => {
         const data = snapshot.data();
-        // If an answer is received and not already set, and it's from the expected answerer
         if (data?.answer && !peerConnection.currentRemoteDescription && data.answererId === otherUserIds[0]) {
           const answerDescription = new RTCSessionDescription(data.answer);
-          await peerConnection.setRemoteDescription(answerDescription); // Set remote description
-          // Start listening for remote ICE candidates from the answerer
+          await peerConnection.setRemoteDescription(answerDescription);
           listenForRemoteIceCandidates(otherUserIds[0], peerConnection);
-          unsubscribeAnswer(); // Stop listening for this answer
-          setCurrentView('videoCall'); // Transition to video call view
+          unsubscribeAnswer();
+          setCurrentView('videoCall');
         } else if (data?.status === 'rejected' && data.answererId === otherUserIds[0]) {
-            // If the other user rejected the call
             showCustomModal("Call rejected by the other user.");
-            hangupCall(); // Clean up resources
+            hangupCall();
         }
       }, (error) => {
         console.error("Error listening for answer:", error);
       });
 
-      // Inform the user that the call is being initiated
       showCustomModal("Calling other user...");
 
     } catch (error) {
       console.error("Error starting call:", error);
       showCustomModal(`Failed to start video call: ${error.message}. Please ensure camera/microphone permissions are granted.`);
-      setIsCalling(false); // Reset calling state
-      hangupCall(); // Clean up if call initiation fails
+      setIsCalling(false);
+      hangupCall();
     }
   };
 
   // Function to accept an incoming video call (Answerer's side)
   const acceptCall = async (offerData, callerId) => {
-    setIsCalling(true); // Indicate that a call is being accepted
-    setCallInitiatorId(callerId); // Set the caller's ID
+    setIsCalling(true);
+    setCallInitiatorId(callerId);
 
     try {
-      // Request access to local media
       localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       if (localVideoRef.current) {
-        localVideoRef.current.srcObject = localStream; // Display local video stream
+        localVideoRef.current.srcObject = localStream;
       }
 
-      await createPeerConnection(); // Create a new peer connection
+      await createPeerConnection();
 
-      // Set the received remote offer description
       const offerDescription = new RTCSessionDescription(offerData);
       await peerConnection.setRemoteDescription(offerDescription);
 
-      // Create an answer (SDP)
       const answer = await peerConnection.createAnswer();
-      await peerConnection.setLocalDescription(answer); // Set local description
+      await peerConnection.setLocalDescription(answer);
 
-      // Save the answer to Firestore
       const callDocRef = doc(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState`, 'currentCall');
       await updateDoc(callDocRef, {
         answer: {
@@ -572,18 +572,17 @@ function App() {
           type: answer.type,
         },
         answererId: myUserId,
-        status: 'active', // Update call status to active
+        status: 'active',
       });
 
-      // Start listening for remote ICE candidates from the caller
       listenForRemoteIceCandidates(callerId, peerConnection);
 
-      setCurrentView('videoCall'); // Transition to video call view
+      setCurrentView('videoCall');
     } catch (error) {
       console.error("Error accepting call:", error);
       showCustomModal(`Failed to accept video call: ${error.message}. Please ensure camera/microphone permissions are granted.`);
-      setIsCalling(false); // Reset calling state
-      hangupCall(); // Clean up if call acceptance fails
+      setIsCalling(false);
+      hangupCall();
     }
   };
 
@@ -592,31 +591,26 @@ function App() {
     if (db && roomId) {
       try {
         const callDocRef = doc(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState`, 'currentCall');
-        // Update call status to 'rejected' in Firestore
         await updateDoc(callDocRef, { status: 'rejected', answererId: myUserId });
       } catch (error) {
         console.error("Error rejecting call:", error);
       }
     }
-    setCurrentView('chat'); // Go back to chat view
-    setIsCalling(false); // Reset calling state
+    setCurrentView('chat');
+    setIsCalling(false);
   };
 
 
   // Callback function to listen for remote ICE candidates
-  // `db` and `appId` removed from dependencies as they are global constants.
   const listenForRemoteIceCandidates = useCallback(async (remotePeerId, pc) => {
     if (!db || !roomId || !pc || !remotePeerId) return;
 
-    // Reference to the Firestore collection where the remote peer's candidates are stored
     const candidatesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState/${remotePeerId}/candidates`);
 
-    // Set up real-time listener for remote ICE candidates
     const unsubscribeCandidates = onSnapshot(candidatesCollectionRef, (snapshot) => {
       snapshot.docChanges().forEach((change) => {
         if (change.type === 'added') {
           const candidate = new RTCIceCandidate(change.doc.data());
-          // Only add candidate if remoteDescription is already set on the peer connection
           if (pc && pc.remoteDescription) {
             pc.addIceCandidate(candidate).catch(e => console.error('Error adding received ICE candidate:', e));
           } else {
@@ -628,16 +622,15 @@ function App() {
       console.error("Error listening for ICE candidates:", error);
     });
 
-    // Clean up the listener when component unmounts or dependencies change
     return () => unsubscribeCandidates();
-  }, [roomId]); // Empty dependency array. 'db' and 'appId' are stable globals.
+  }, [roomId]);
 
   // Function to toggle local video stream on/off
   const toggleLocalVideo = () => {
     if (localStream) {
       localStream.getVideoTracks().forEach(track => {
-        track.enabled = !track.enabled; // Toggle track enabled state
-        setIsLocalVideoMuted(!track.enabled); // Update UI state
+        track.enabled = !track.enabled;
+        setIsLocalVideoMuted(!track.enabled);
       });
     }
   };
@@ -646,8 +639,8 @@ function App() {
   const toggleLocalAudio = () => {
     if (localStream) {
       localStream.getAudioTracks().forEach(track => {
-        track.enabled = !track.enabled; // Toggle track enabled state
-        setIsLocalAudioMuted(!track.enabled); // Update UI state
+        track.enabled = !track.enabled;
+        setIsLocalAudioMuted(!track.enabled);
       });
     }
   };
@@ -662,20 +655,20 @@ function App() {
   // Display a loading message while Firebase authentication is being set up
   if (!isAuthReady) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
-        <p className="text-xl text-gray-700 dark:text-gray-300">Loading...</p>
+      <div className="flex items-center justify-center min-h-screen bg-white">
+        <p className="text-xl text-gray-700">Loading...</p>
       </div>
     );
   }
 
   // Main render logic based on currentView state
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 font-sans antialiased">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-white font-sans antialiased">
       {/* Custom Modal for Alerts (conditionally rendered) */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl text-center max-w-sm w-full mx-4">
-            <p className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">{modalMessage}</p>
+          <div className="bg-white p-6 rounded-lg shadow-xl text-center max-w-sm w-full mx-4">
+            <p className="text-lg font-semibold text-gray-800 mb-4">{modalMessage}</p>
             <button
               onClick={closeCustomModal}
               className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200"
@@ -688,32 +681,32 @@ function App() {
 
       {/* Login View (UI1.png) - Conditionally rendered */}
       {currentView === 'login' && (
-        <div className="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md border border-gray-200 dark:border-gray-700">
+        <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md border border-gray-200">
           <div className="flex flex-col items-center mb-8">
             {/* User Icon SVG */}
             <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-user-round text-blue-600 mb-4">
               <circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>
             </svg>
             <h1 className="text-4xl font-extrabold text-blue-600 mb-2">Parivideo</h1>
-            <p className="text-lg text-gray-700 dark:text-gray-300 font-medium">Private Chat & Video Call</p>
+            <p className="text-lg text-gray-700 font-medium">Private Chat & Video Call</p>
           </div>
           <div className="mb-4">
-            <label htmlFor="roomCode" className="sr-only">Room Code</label> {/* Accessible label */}
+            <label htmlFor="roomCode" className="sr-only">Room Code</label>
             <input
               type="text"
               id="roomCode"
-              className="w-full px-5 py-3 border border-gray-300 dark:border-gray-700 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
+              className="w-full px-5 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400"
               value={roomId}
               onChange={(e) => setRoomId(e.target.value)}
               placeholder="Room Code"
             />
           </div>
           <div className="mb-8">
-            <label htmlFor="userName" className="sr-only">User Name</label> {/* Accessible label */}
+            <label htmlFor="userName" className="sr-only">User Name</label>
             <input
               type="text"
               id="userName"
-              className="w-full px-5 py-3 border border-gray-300 dark:border-gray-700 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
+              className="w-full px-5 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400"
               value={userName}
               onChange={(e) => setUserName(e.target.value)}
               placeholder="User Name"
@@ -725,7 +718,7 @@ function App() {
           >
             Join Room
           </button>
-          <p className="text-center text-gray-600 dark:text-gray-400 mt-6 text-sm">
+          <p className="text-center text-gray-600 mt-6 text-sm">
             Your anonymous ID: <span className="font-mono text-xs select-all">{myUserId || 'N/A'}</span>
           </p>
         </div>
@@ -752,14 +745,13 @@ function App() {
             </button>
             <button
               onClick={async () => {
-                // Fetch the latest call data to ensure we have the correct offer
                 const callDocRef = doc(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState`, 'currentCall');
                 const callData = (await getDoc(callDocRef)).data();
                 if (callData && callData.offer) {
                   acceptCall(callData.offer, callData.callerId);
                 } else {
                   showCustomModal("No active call offer found to accept.");
-                  setCurrentView('chat'); // Fallback to chat if no offer is found
+                  setCurrentView('chat');
                 }
               }}
               className="flex flex-col items-center p-4 bg-green-500 rounded-full shadow-lg hover:bg-green-600 focus:outline-none focus:ring-4 focus:ring-green-400 transition duration-200"
@@ -778,9 +770,9 @@ function App() {
 
       {/* Chat and Video Call Views (2.png, 4.jpg, 5.jpg) - Conditionally rendered */}
       {(currentView === 'chat' || currentView === 'videoCall') && (
-        <div className="flex flex-col w-full max-w-sm md:max-w-md lg:max-w-xl h-[95vh] bg-white dark:bg-gray-800 rounded-lg shadow-xl overflow-hidden border border-gray-200 dark:border-gray-700">
-          {/* Chat Header (UI similar to 2.png) */}
-          <div className="flex items-center justify-between p-4 bg-blue-600 text-white rounded-t-lg shadow-md">
+        <div className="flex flex-col w-full max-w-sm md:max-w-md lg:max-w-xl h-screen bg-white rounded-lg shadow-xl overflow-hidden border border-gray-200">
+          {/* Chat Header (UI similar to 2.png) - Fixed to top */}
+          <div className="flex items-center justify-between p-4 bg-blue-600 text-white rounded-t-lg shadow-md sticky top-0 z-20">
             <div className="flex items-center space-x-3">
               {/* Profile Icon (Placeholder SVG) */}
               <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-user-circle">
@@ -826,10 +818,10 @@ function App() {
             </div>
           </div>
 
-          {/* Chat Messages Area (UI similar to 2.png) */}
-          <div className="flex-grow p-4 space-y-4 overflow-y-auto bg-gray-50 dark:bg-gray-700 custom-scrollbar relative">
+          {/* Chat Messages Area - Scrolls */}
+          <div className="flex-grow p-4 space-y-4 overflow-y-auto bg-white relative">
             {messages.length === 0 && (
-              <div className="flex-grow flex items-center justify-center text-gray-500 dark:text-gray-400">
+              <div className="flex-grow flex items-center justify-center text-gray-500">
                 <p>No messages yet. Start chatting!</p>
               </div>
             )}
@@ -841,7 +833,7 @@ function App() {
                 {/* System messages (e.g., "User Joined") */}
                 {msg.senderId === 'system' ? (
                   <div className="text-center w-full">
-                    <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-600 px-3 py-1 rounded-full">
+                    <span className="text-xs text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
                       {msg.text}
                     </span>
                   </div>
@@ -850,22 +842,19 @@ function App() {
                   <div
                     className={`max-w-[75%] p-3 rounded-xl shadow-sm relative ${
                       msg.senderId === myUserId
-                        ? 'bg-blue-500 text-white rounded-br-none self-end' // Your messages
-                        : 'bg-gray-200 dark:bg-gray-600 text-gray-900 dark:text-white rounded-bl-none self-start' // Other user's messages
+                        ? 'bg-blue-500 text-white rounded-br-none self-end'
+                        : 'bg-white text-gray-900 rounded-bl-none self-start border border-gray-200'
                     }`}
                   >
-                    <p className="font-semibold text-sm mb-1">
-                      {msg.senderId === myUserId ? 'You' : msg.senderName}
-                    </p>
                     <p className="text-base break-words">{msg.text}</p>
-                    <span className="text-xs text-gray-300 dark:text-gray-400 block text-right mt-1">
-                      {msg.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    <span className="text-xs text-gray-600 block text-right mt-1">
+                      {msg.senderId === myUserId ? 'You' : msg.senderName} • {msg.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
                 )}
               </div>
             ))}
-            <div ref={messagesEndRef} /> {/* Element for auto-scrolling to */}
+            <div ref={messagesEndRef} />
 
             {/* Video Call Overlay (UI similar to 5.jpg) - Conditionally rendered */}
             {isCallActive && (
@@ -874,7 +863,7 @@ function App() {
                   {/* Remote Video (Main display) */}
                   <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover"></video>
                   {/* Local Video (Small overlay) */}
-                  <div className="absolute top-4 left-4 w-1/3 h-1/4 max-w-[120px] max-h-[160px] bg-gray-700 rounded-lg overflow-hidden shadow-lg border-2 border-white">
+                  <div className="absolute top-4 left-4 w-1/3 h-1/4 max-w-[120px] max-h-[160px] bg-blue-700 rounded-lg overflow-hidden shadow-lg border-2 border-white">
                     <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover"></video>
                   </div>
 
@@ -884,7 +873,7 @@ function App() {
                     <button
                       onClick={toggleLocalVideo}
                       title={isLocalVideoMuted ? "Unmute Video" : "Mute Video"}
-                      className={`p-3 rounded-full mx-2 ${isLocalVideoMuted ? 'bg-red-500' : 'bg-gray-700'} text-white hover:opacity-80 transition duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50`}
+                      className={`p-3 rounded-full mx-2 ${isLocalVideoMuted ? 'bg-red-500' : 'bg-blue-700'} text-white hover:opacity-80 transition duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50`}
                     >
                       {/* Video On/Off Icons */}
                       {isLocalVideoMuted ? (
@@ -901,7 +890,7 @@ function App() {
                     <button
                       onClick={toggleLocalAudio}
                       title={isLocalAudioMuted ? "Unmute Audio" : "Mute Audio"}
-                      className={`p-3 rounded-full mx-2 ${isLocalAudioMuted ? 'bg-red-500' : 'bg-gray-700'} text-white hover:opacity-80 transition duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50`}
+                      className={`p-3 rounded-full mx-2 ${isLocalAudioMuted ? 'bg-red-500' : 'bg-blue-700'} text-white hover:opacity-80 transition duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50`}
                     >
                       {/* Mic On/Off Icons */}
                       {isLocalAudioMuted ? (
@@ -918,7 +907,7 @@ function App() {
                     <button
                       onClick={hangupCall}
                       title="End Call"
-                      className="p-3 rounded-full bg-red-600 text-white mx-2 hover:bg-red-700 transition duration-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50"
+                      className="p-3 rounded-full bg-red-600 text-white mx-2 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50"
                     >
                       {/* Phone Off Icon SVG */}
                       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-phone-off">
@@ -931,25 +920,29 @@ function App() {
             )}
           </div>
 
-          {/* Chat Input (UI similar to 2.png) */}
-          <form onSubmit={handleSendMessage} className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
-            <div className="flex items-center space-x-3">
+          {/* Chat Input (UI similar to 2.png) - Fixed to bottom */}
+          <form onSubmit={handleSendMessage} className="p-4 bg-white border-t border-gray-200 sticky bottom-0 z-20">
+            <div className="flex items-center space-x-3 w-full"> {/* Added w-full for full width */}
               {/* Image Upload Icon (Non-functional placeholder SVG) */}
-              <button type="button" className="p-2 rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none">
+              <button
+                type="button"
+                onClick={() => showCustomModal("Image upload is not yet implemented.")}
+                className="p-2 rounded-full text-gray-600 hover:bg-gray-100 focus:outline-none flex-shrink-0"
+              >
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-image-plus">
                   <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/><line x1="16" x2="22" y1="5" y2="5"/><line x1="19" x2="19" y1="2" y2="8"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
                 </svg>
               </button>
               <input
                 type="text"
-                className="flex-grow px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
+                className="flex-grow px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400"
                 placeholder="Type your message..."
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
               />
               <button
                 type="submit"
-                className="p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200"
+                className="p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200 flex-shrink-0"
               >
                 {/* Send Icon SVG */}
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-send">
