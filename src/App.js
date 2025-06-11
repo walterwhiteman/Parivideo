@@ -70,6 +70,7 @@ function App() {
   const [isLocalAudioMuted, setIsLocalAudioMuted] = useState(false); // State for local audio mute button
   const [callTimer, setCallTimer] = useState(0); // Timer for active video call duration
   const callTimerRef = useRef(null); // Ref to store interval ID for call timer
+  const presenceIntervalRef = useRef(null); // Ref to store interval ID for presence updates
 
   // Refs for video elements to attach media streams
   const localVideoRef = useRef(null);
@@ -135,6 +136,44 @@ function App() {
       console.error(`Error updating presence for ${userId} to ${status}:`, error);
     }
   }, []);
+
+  // Effect to periodically update presence while in a room
+  useEffect(() => {
+      // Only set up interval if in chat view, and necessary Firebase/user details are available
+      if (currentView === 'chat' && myUserId && roomId && userName && db && isAuthReady) {
+          console.log(`[PresenceInterval] Setting up periodic presence update for ${myUserId} in room ${roomId}`);
+          // Clear any existing interval first to prevent duplicates
+          if (presenceIntervalRef.current) {
+              clearInterval(presenceIntervalRef.current);
+          }
+
+          // Update presence every 15 seconds
+          presenceIntervalRef.current = setInterval(() => {
+              // Ensure we use the latest state values for roomId, myUserId, userName
+              // This is a common pattern for setIntervals inside useEffect closures
+              if (db && roomId && myUserId && userName) { // Re-check validity inside interval
+                  updatePresence(roomId, myUserId, userName, 'online');
+              }
+          }, 15 * 1000); // Update every 15 seconds
+
+          // Cleanup function for when component unmounts or dependencies change
+          return () => {
+              if (presenceIntervalRef.current) {
+                  console.log(`[PresenceInterval] Clearing periodic presence update for ${myUserId}`);
+                  clearInterval(presenceIntervalRef.current);
+                  presenceIntervalRef.current = null;
+              }
+          };
+      } else {
+          // If not in chat view or dependencies not ready, ensure interval is cleared
+          if (presenceIntervalRef.current) {
+              console.log("[PresenceInterval] Clearing interval due to view change or dependencies not ready.");
+              clearInterval(presenceIntervalRef.current);
+              presenceIntervalRef.current = null;
+          }
+      }
+  }, [currentView, myUserId, roomId, userName, db, isAuthReady, updatePresence]);
+
 
   // Function to hangup/end the video call, wrapped in useCallback
   const hangupCall = useCallback(async () => {
@@ -278,7 +317,7 @@ function App() {
         console.log(`[RoomUsersEffect] Unsubscribing from room users for room: ${roomId}`);
         unsubscribe();
     };
-  }, [roomId, myUserId, isAuthReady]);
+  }, [db, roomId, myUserId, isAuthReady]); // Re-added 'db' as a dependency, just in case
 
   // Function to handle joining a room
   const handleJoinRoom = async () => {
@@ -308,23 +347,30 @@ function App() {
       // Step 2: Clean up stale presence documents BEFORE checking capacity.
       // This is crucial for reliable capacity checks and re-joins.
       const now = Date.now();
-      const STALE_THRESHOLD_MS = 25 * 1000; // Increased to 25 seconds for robustness against network latency/fast reloads
+      // Set STALE_THRESHOLD_MS slightly larger than the periodic update interval
+      const STALE_THRESHOLD_MS = 20 * 1000; // 20 seconds. Periodic update is 15s.
       
       let usersSnapshotPreCleanup = await getDocs(usersCollectionRef);
       console.log(`[JoinRoom] Initial user check (before stale cleanup): Found ${usersSnapshotPreCleanup.docs.length} documents.`);
       
-      // Perform cleanup of truly stale users who are not the current user
+      // Filter users to delete: not current user, and (lastSeen is too old OR lastSeen is missing)
+      const usersToDeletePromises = [];
       for (const userDoc of usersSnapshotPreCleanup.docs) {
           const userData = userDoc.data();
           const lastSeenMs = userData.lastSeen ? userData.lastSeen.toDate().getTime() : 0;
           
           if (userDoc.id !== myUserId && (now - lastSeenMs > STALE_THRESHOLD_MS || !userData.lastSeen)) {
-              console.warn(`[JoinRoom] Deleting stale user: ${userDoc.id} (Last Seen: ${lastSeenMs ? new Date(lastSeenMs).toLocaleString() : 'N/A'})`);
-              await deleteDoc(userDoc.ref).catch(e => console.error(`Failed to delete stale user ${userDoc.id}:`, e));
+              console.warn(`[JoinRoom] Deleting stale user: ${userDoc.id} (Last Seen: ${lastSeenMs ? new Date(lastSeenMs).toLocaleString() : 'N/A'}). Age: ${((now - lastSeenMs)/1000).toFixed(1)}s`);
+              usersToDeletePromises.push(deleteDoc(userDoc.ref).catch(e => console.error(`Failed to delete stale user ${userDoc.id}:`, e)));
+          } else {
+              console.log(`[JoinRoom] User ${userDoc.id} is NOT stale (Last Seen: ${lastSeenMs ? new Date(lastSeenMs).toLocaleString() : 'N/A'}) or is current user.`);
           }
       }
+      await Promise.allSettled(usersToDeletePromises); // Wait for all deletions to attempt
 
       // Step 3: Re-fetch user list AFTER potential cleanup for accurate capacity check.
+      // Give Firestore a tiny moment to reflect deletions before re-fetching
+      await new Promise(resolve => setTimeout(resolve, 300)); // Small delay for consistency
       const usersSnapshotAfterCleanup = await getDocs(usersCollectionRef);
       const existingUserIdsAfterCleanup = usersSnapshotAfterCleanup.docs.map(doc => doc.id);
       
