@@ -62,8 +62,7 @@ function App() {
   const [callTimer, setCallTimer] = useState(0);
   const callTimerRef = useRef(null);
   const presenceIntervalRef = useRef(null);
-  // NEW: Ref to signal if current client is performing a local presence update (join/leave)
-  const isLocalPresenceUpdate = useRef(false);
+  // Removed: isLocalPresenceUpdate ref as system messages are no longer generated
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -222,21 +221,15 @@ function App() {
       setIsAuthReady(true);
     });
 
-    const handleBeforeUnload = async () => {
-      if (myUserId && roomId && userName && db) {
-        // REMOVED: No longer sending 'Left (browser closed/reloaded)' message on unload.
-        // We will rely on onSnapshot detecting absence for other users,
-        // and handleLeaveRoom for graceful exits.
-      }
-    };
+    // Removed: handleBeforeUnload logic that sent system messages
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    window.addEventListener('unload', handleBeforeUnload); 
+    // Removed: window.addEventListener('beforeunload', handleBeforeUnload);
+    // Removed: window.addEventListener('unload', handleBeforeUnload); 
 
     return () => {
       unsubscribeAuth();
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      window.removeEventListener('unload', handleBeforeUnload);
+      // Removed: window.removeEventListener('beforeunload', handleBeforeUnload);
+      // Removed: window.removeEventListener('unload', handleBeforeUnload);
     };
   }, [roomId, myUserId, userName, showCustomModal]);
 
@@ -246,7 +239,7 @@ function App() {
         return;
     }
 
-    const messagesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/messages`);
+    // Removed: messagesCollectionRef as no system messages are sent from here anymore
     const roomUsersRef = collection(db, `artifacts/${appId}/public/data/rooms`, roomId, 'users');
     const q = query(roomUsersRef);
 
@@ -261,32 +254,8 @@ function App() {
       console.log("[RoomUsersEffect] Current snapshot usersData:", currentUsersData);
       console.log("[RoomUsersEffect] Previous roomUsers state:", roomUsers);
 
-      const usersWhoLeft = Object.keys(roomUsers).filter(
-          (prevUserName) => !currentUsersData[prevUserName]
-      );
-
-      for (const leftUserName of usersWhoLeft) {
-          // NEW Logic: Suppress 'Left (disconnected)' if it's the current user AND a local update is in progress
-          if (leftUserName === userName && isLocalPresenceUpdate.current) {
-              console.log(`[RoomUsersEffect] Suppressing 'Left' message for current user (${leftUserName}) due to local presence update.`);
-              continue; // Skip processing this as a 'left' from snapshot
-          }
-          // Only send 'Left (disconnected)' for other users
-          if (leftUserName !== userName) { 
-            console.log(`[RoomUsersEffect] Detected other user ${leftUserName} left.`);
-            try {
-                await addDoc(messagesCollectionRef, {
-                    senderId: 'system',
-                    senderName: 'System',
-                    text: `${leftUserName} Left (disconnected)`,
-                    timestamp: serverTimestamp(),
-                });
-                console.log(`[RoomUsersEffect] System message: '${leftUserName} Left (disconnected)' sent to Firestore.`);
-            } catch (error) {
-                console.error(`Error sending 'Left' message for ${leftUserName}:`, error);
-            }
-          }
-      }
+      // Removed: Logic to detect usersWhoLeft and send system messages
+      // This is because we agreed to remove all join/leave notifications.
 
       setRoomUsers(currentUsersData); 
     }, (error) => {
@@ -311,10 +280,10 @@ function App() {
 
     const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, roomId);
     const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms`, roomId, 'users');
-    const messagesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/messages`);
+    // Removed: messagesCollectionRef as no system messages are sent from here anymore
 
     try {
-      isLocalPresenceUpdate.current = true; // Set flag at the beginning of the join process
+      // Removed: isLocalPresenceUpdate.current = true;
 
       const roomDoc = await getDoc(roomDocRef);
       if (!roomDoc.exists()) {
@@ -326,14 +295,14 @@ function App() {
       }
 
       const now = Date.now();
-      const STALE_THRESHOLD_MS = 45 * 1000;
+      const STALE_THRESHOLD_MS = 45 * 1000; // 45 seconds (3 times the 15-second update interval)
       
       let usersSnapshotPreCleanup = await getDocs(usersCollectionRef);
       console.log(`[JoinRoom] Initial user check (before stale cleanup): Found ${usersSnapshotPreCleanup.docs.length} documents.`);
       
       const usersToDeletePromises = [];
       let isTargetUsernameTakenByAnother = false;
-      let isRejoiningSameUser = false; // Flag to determine if it's a "Rejoined" message
+      // Removed: isRejoiningSameUser as no join/rejoin messages are sent
 
       for (const userDoc of usersSnapshotPreCleanup.docs) {
           const docUserName = userDoc.id;
@@ -346,15 +315,13 @@ function App() {
               if (isStale) {
                   console.warn(`[JoinRoom] Deleting stale presence for current userName: ${docUserName} (Last Seen: ${new Date(lastSeenMs).toLocaleString()}). Age: ${((now - lastSeenMs)/1000).toFixed(1)}s`);
                   usersToDeletePromises.push(deleteDoc(userDoc.ref).catch(e => console.error(`Failed to delete stale presence for current userName ${docUserName}:`, e)));
-                  // Since our own stale presence is being deleted, it's NOT a rejoin, it's a new join from this client's perspective
-                  isRejoiningSameUser = false; 
               } else {
                   if (userData.firebaseUid !== myUserId) {
                       console.warn(`[JoinRoom] Username '${docUserName}' is already taken by active user with different Firebase UID: ${userData.firebaseUid}. Blocking join.`);
                       isTargetUsernameTakenByAnother = true; 
                   } else {
                       console.log(`[JoinRoom] Rejoining as existing user ${docUserName} (${myUserId}).`);
-                      isRejoiningSameUser = true; // Confirmed rejoin
+                      // No longer need to set isRejoiningSameUser
                   }
               }
           } else if (isStale) {
@@ -388,18 +355,7 @@ function App() {
       await updatePresence(roomId, userName.trim(), myUserId, 'online');
       console.log(`[JoinRoom] User ${userName} (${myUserId}) presence set to online after capacity and cleanup checks.`);
 
-      // Add 'Joined' message to Firestore as a system message
-      try {
-        await addDoc(messagesCollectionRef, {
-            senderId: 'system',
-            senderName: 'System',
-            text: isRejoiningSameUser ? `${userName.trim()} Rejoined` : `${userName.trim()} Joined`,
-            timestamp: serverTimestamp(),
-        });
-        console.log(`[JoinRoom] System message: '${userName} Joined/Rejoined' sent to Firestore. (isRejoiningSameUser: ${isRejoiningSameUser})`);
-      } catch (error) {
-          console.error(`Error sending 'Joined' message for ${userName}:`, error);
-      }
+      // Removed: Add 'Joined' message to Firestore
       
       setCurrentView('chat');
       console.log(`[JoinRoom] Successfully joined room ${roomId}.`);
@@ -408,11 +364,7 @@ function App() {
       console.error("[JoinRoom] Error joining room (caught in handleJoinRoom):", error);
       showCustomModal(`Failed to join room: ${error.message}`);
     } finally {
-        // Reset flag after a short delay to allow onSnapshot to process the new presence
-        setTimeout(() => {
-            isLocalPresenceUpdate.current = false;
-            console.log("[JoinRoom] isLocalPresenceUpdate flag reset to false.");
-        }, 1000); // 1 second debounce
+        // Removed: setTimeout for isLocalPresenceUpdate reset
     }
   };
 
@@ -422,22 +374,11 @@ function App() {
     }
 
     try {
-      isLocalPresenceUpdate.current = true; // Set flag at the beginning of the leave process
+      // Removed: isLocalPresenceUpdate.current = true;
 
       if (myUserId && roomId && userName) {
         await updatePresence(roomId, userName, myUserId, 'offline');
-        // Send a system message for explicit graceful leave
-        try {
-          await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/messages`), {
-            senderId: 'system',
-            senderName: 'System',
-            text: `${userName} Left (graceful exit)`,
-            timestamp: serverTimestamp(),
-          });
-          console.log(`[LeaveRoom] System message: '${userName} Left (graceful exit)' sent to Firestore.`);
-        } catch (error) {
-          console.error("Error sending graceful 'Left' message:", error);
-        }
+        // Removed: Send a system message for explicit graceful leave
       }
     } catch (error) {
         console.error("[LeaveRoom] Error during leave process:", error);
@@ -467,11 +408,7 @@ function App() {
           clearInterval(callTimerRef.current);
           setCallTimer(0);
         }
-        // Reset flag after a short delay for graceful exit propagation
-        setTimeout(() => {
-            isLocalPresenceUpdate.current = false;
-            console.log("[LeaveRoom] isLocalPresenceUpdate flag reset to false.");
-        }, 1000); // 1 second debounce
+        // Removed: setTimeout for isLocalPresenceUpdate reset
     }
   };
 
@@ -906,6 +843,7 @@ function App() {
                 className={`flex ${msg.senderId === myUserId ? 'justify-end' : 'justify-start'}`}
               >
                 {/* System messages (e.g., "User Joined", "User Left") */}
+                {/* Now, no 'system' messages for join/leave events will be generated */}
                 {msg.senderId === 'system' ? (
                   <div className="text-center w-full">
                     <span className="text-xs text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
