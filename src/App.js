@@ -119,7 +119,7 @@ function App() {
     try {
       if (status === 'online') {
         await setDoc(userStatusRef, { userName: userName, lastSeen: serverTimestamp() });
-        // --- NEW: Set up onDisconnect to delete presence if client disconnects unexpectedly ---
+        // Set up onDisconnect to delete presence if client disconnects unexpectedly
         await userStatusRef.onDisconnect().delete();
 
         await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${currentRoomId}/messages`), {
@@ -129,7 +129,7 @@ function App() {
           timestamp: serverTimestamp(),
         });
       } else if (status === 'offline') {
-        // --- NEW: Cancel onDisconnect if the user explicitly leaves ---
+        // Cancel onDisconnect if the user explicitly leaves
         await userStatusRef.onDisconnect().cancel();
         await deleteDoc(userStatusRef);
 
@@ -623,7 +623,7 @@ function App() {
   // Display a loading message while Firebase authentication is being set up
   if (!isAuthReady) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-white">
+      <div className="flex items-center justify-center min-h-[100dvh] bg-white">
         <p className="text-xl text-gray-700">Loading...</p>
       </div>
     );
@@ -632,8 +632,8 @@ function App() {
   // Determine outer container classes based on current view
   const outerContainerClasses =
     currentView === 'login' || currentView === 'incomingCall'
-      ? 'flex flex-col items-center justify-center min-h-screen bg-white font-sans antialiased'
-      : 'flex flex-col min-h-screen bg-white font-sans antialiased'; // Removed centering for chat/video views
+      ? 'flex flex-col items-center justify-center min-h-[100dvh] bg-white font-sans antialiased'
+      : 'flex flex-col min-h-[100dvh] bg-white font-sans antialiased'; // Removed centering for chat/video views
 
   // Main render logic based on currentView state
   return (
@@ -742,9 +742,10 @@ function App() {
       )}
 
 
-      {/* Chat and Video Call Views (2.png, 4.jpg, 5.jpg) - Conditionally rendered */}
+      {/* Chat and Video Call Views - Conditionally rendered */}
       {(currentView === 'chat' || currentView === 'videoCall') && (
-        <div className="flex flex-col w-full max-w-full sm:max-w-sm md:max-w-md lg:max-w-xl h-screen bg-white rounded-lg shadow-xl overflow-hidden border border-gray-200">
+        // Changed h-screen to h-[100dvh] for more accurate viewport height on mobile
+        <div className="flex flex-col flex-grow w-full max-w-full sm:max-w-sm md:max-w-md lg:max-w-xl h-[100dvh] bg-white rounded-lg shadow-xl overflow-hidden border border-gray-200">
           {/* Chat Header (UI similar to 2.png) - Fixed to top */}
           <div className="flex items-center justify-between p-4 bg-blue-600 text-white rounded-t-lg shadow-md sticky top-0 z-20">
             <div className="flex items-center space-x-3">
@@ -896,7 +897,7 @@ function App() {
 
           {/* Chat Input (UI similar to 2.png) - Fixed to bottom */}
           <form onSubmit={handleSendMessage} className="p-4 bg-white border-t border-gray-200 sticky bottom-0 z-20">
-            <div className="flex items-center space-x-3 w-full"> {/* Added w-full for full width */}
+            <div className="flex items-center space-x-3 w-full">
               {/* Image Upload Icon (Non-functional placeholder SVG) */}
               <button
                 type="button"
@@ -930,5 +931,3 @@ function App() {
     </div>
   );
 }
-
-export default App;
