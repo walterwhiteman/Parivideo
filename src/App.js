@@ -17,30 +17,32 @@ import {
   getDocs,
 } from 'firebase/firestore';
 
-// IMPORTANT: For direct GitHub file creation, we'll read Firebase config from window.firebaseConfig
-// This assumes you will paste your actual Firebase config into public/index.html
-const firebaseConfig = window.firebaseConfig || {};
-const appId = window.appId || 'default-app-id'; // Assuming appId is also set in index.html for consistency
-
-// Initialize Firebase services globally to ensure it's done only once.
+// Check for existing global Firebase instances first to avoid re-initialization warnings
+// This is important for hot-reloading in development and in environments like Canvas
 let firebaseApp;
 let db;
 let auth;
 
-// Initialize Firebase if config is available and no app has been initialized yet
-if (Object.keys(firebaseConfig).length > 0 && !getApps().length) {
-  firebaseApp = initializeApp(firebaseConfig);
-  db = getFirestore(firebaseApp);
-  auth = getAuth(firebaseApp);
-} else if (getApps().length > 0) {
-  // If an app is already initialized (e.g., during hot-reloads in development), get the first instance
-  firebaseApp = getApps()[0]; // Get the first initialized app
-  db = getFirestore(firebaseApp);
-  auth = getAuth(firebaseApp);
+// Ensure firebaseConfig and appId are available from window if running in a browser environment
+// This assumes public/index.html correctly sets window.firebaseConfig and window.appId
+const firebaseConfig = typeof window !== 'undefined' && window.firebaseConfig ? window.firebaseConfig : {};
+const appId = typeof window !== 'undefined' && window.appId ? window.appId : 'default-app-id';
+
+if (Object.keys(firebaseConfig).length > 0 && typeof window !== 'undefined') {
+  if (!getApps().length) {
+    firebaseApp = initializeApp(firebaseConfig);
+    db = getFirestore(firebaseApp);
+    auth = getAuth(firebaseApp);
+  } else {
+    // If an app is already initialized (e.g., during hot-reloads in development), get the first instance
+    firebaseApp = getApps()[0];
+    db = getFirestore(firebaseApp);
+    auth = getAuth(firebaseApp);
+  }
 } else {
-  // This warning will appear if firebaseConfig is not set in index.html
-  console.warn("Firebase config is empty or Firebase not initialized. App may not function correctly. Please ensure window.firebaseConfig is set in public/index.html.");
+  console.warn("Firebase config is empty or not running in a browser. App may not function correctly without Firebase. Ensure window.firebaseConfig is set in public/index.html.");
 }
+
 // Global WebRTC variables for peer connection and streams.
 // These are managed here for direct WebRTC API interaction,
 // but their state and lifecycle are controlled by React component.
@@ -119,18 +121,9 @@ function App() {
     try {
       if (status === 'online') {
         await setDoc(userStatusRef, { userName: userName, lastSeen: serverTimestamp() });
-        // REMOVED: onDisconnect is not supported in Firestore
-        // await userStatusRef.onDisconnect().delete();
-
-        await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${currentRoomId}/messages`), {
-          senderId: 'system',
-          senderName: 'System',
-          text: `${userName} Joined`,
-          timestamp: serverTimestamp(),
-        });
+        // Removed: onDisconnect is not supported in Firestore
       } else if (status === 'offline') {
-        // REMOVED: onDisconnect is not supported in Firestore
-        // await userStatusRef.onDisconnect().cancel();
+        // Removed: onDisconnect is not supported in Firestore
         await deleteDoc(userStatusRef);
 
         await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${currentRoomId}/messages`), {
@@ -222,12 +215,11 @@ function App() {
 
     // Handle leaving the room on page reload or navigation away
     const handleBeforeUnload = async () => {
-      // Only send the 'Left' message; rely on Firestore's onDisconnect for presence cleanup
       if (myUserId && roomId && userName && db) {
-        const messagesCollectionPath = `artifacts/${appId}/public/data/rooms/${roomId}/messages`;
         const userDocPath = `artifacts/${appId}/public/data/rooms/${roomId}/users/${myUserId}`; // Get user presence doc reference
+        const messagesCollectionPath = `artifacts/${appId}/public/data/rooms/${roomId}/messages`;
 
-        // Attempt to delete user presence on unload
+        // Attempt to delete user presence on unload and send "Left" message
         Promise.allSettled([
           fetch(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/${userDocPath}`, {
             method: 'DELETE',
@@ -299,14 +291,11 @@ function App() {
     const currentUserStatusRef = doc(roomDocRef, 'users', myUserId); // Reference to current user's presence document
 
     try {
-      // Explicitly delete current user's old presence record if it exists
+      // --- NEW FIX: Explicitly delete current user's old presence record to ensure cleanup ---
       const currentUserDoc = await getDoc(currentUserStatusRef);
       if (currentUserDoc.exists()) {
         console.log("Found existing presence for current user, deleting it...");
         await deleteDoc(currentUserStatusRef);
-        // NO LONGER NEEDED: The setTimeout was a workaround for onDisconnect's absence.
-        // We still need a moment for Firestore to process, but a direct delete is faster.
-        // await new Promise(resolve => setTimeout(resolve, 200));
       }
 
       const roomDoc = await getDoc(roomDocRef);
@@ -315,11 +304,11 @@ function App() {
       if (roomDoc.exists()) {
         const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/users`);
         const usersSnapshot = await getDocs(usersCollectionRef);
-        // Filter out the current user's potential stale entry if it somehow survived the delete or a race
+        // Filter out the current user's ID to count only *other* users.
         existingUsersCount = usersSnapshot.docs.filter(doc => doc.id !== myUserId).length;
 
         // If there's already one other user, the room is considered full (allowing for 2 total).
-        if (existingUsersCount >= 1) {
+        if (existingUsersCount >= 1) { // Changed condition to check for one other user
           showCustomModal("This room is full. Only two users allowed. Please try another room code.");
           return;
         }
@@ -918,7 +907,7 @@ function App() {
 
               {/* Chat Input (UI similar to 2.png) - Fixed to bottom */}
               <form onSubmit={handleSendMessage} className="p-4 bg-white border-t border-gray-200 sticky bottom-0 z-20">
-                <div className="flex items-center space-x-3 w-full"> {/* Added w-full for full width */}
+                <div className="flex items-center space-x-3 w-full">
                   {/* Image Upload Icon (Non-functional placeholder SVG) */}
                   <button
                     type="button"
@@ -935,7 +924,7 @@ function App() {
                     placeholder="Type your message..."
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
-                  /> {/* Closing tag was missing here */}
+                  />
                   <button
                     type="submit"
                     className="p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200 flex-shrink-0"
@@ -952,5 +941,3 @@ function App() {
         </div>
       );
     }
-
-    export default App;
