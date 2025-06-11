@@ -313,14 +313,18 @@ function App() {
         const usersSnapshot = await getDocs(usersCollectionRef);
         
         // Filter out the current user's ID to count only *other* users.
+        // ... inside handleJoinRoom (replace the existing logging lines)
         const otherUsersDocs = usersSnapshot.docs.filter(doc => doc.id !== myUserId);
         existingOtherUsersCount = otherUsersDocs.length;
         
-        console.log(`[JoinRoom] Found ${usersSnapshot.docs.length} total user documents in room '${roomId}'. After filtering self (${myUserId}), found ${existingOtherUsersCount} other users.`);
+        console.log(`[JoinRoom] Found ${usersSnapshot.docs.length} total user documents in room '${roomId}'.`);
+        console.log(`[JoinRoom] All user IDs found: ${usersSnapshot.docs.map(doc => doc.id).join(', ')}`);
+        console.log(`[JoinRoom] After filtering self (${myUserId}), found ${existingOtherUsersCount} other users.`);
 
         // If there's already one other user, the room is considered full (allowing for 2 total).
         if (existingOtherUsersCount >= 1) {
           console.warn(`[JoinRoom] Room ${roomId} is full. Existing other users: ${existingOtherUsersCount}. Blocking join.`);
+          // ... rest of the code
           showCustomModal("This room is full. Only two users allowed. Please try another room code.");
           // IMPORTANT: If blocked, set user presence to offline immediately
           await updatePresence(roomId, myUserId, userName, 'offline');
