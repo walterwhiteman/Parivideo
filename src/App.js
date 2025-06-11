@@ -304,27 +304,49 @@ function App() {
         timestamp: serverTimestamp(),
       });
 
-
       const roomDoc = await getDoc(roomDocRef);
-      let existingOtherUsersCount = 0; // Renamed for clarity
-
+      
       if (roomDoc.exists()) {
         const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/users`);
-        const usersSnapshot = await getDocs(usersCollectionRef);
+        let usersSnapshot = await getDocs(usersCollectionRef); // Use let because we might re-fetch
         
-        // Filter out the current user's ID to count only *other* users.
-        // ... inside handleJoinRoom (replace the existing logging lines)
-        const otherUsersDocs = usersSnapshot.docs.filter(doc => doc.id !== myUserId);
-        existingOtherUsersCount = otherUsersDocs.length;
+        let existingUserIdsInRoom = usersSnapshot.docs.map(doc => doc.id);
         
-        console.log(`[JoinRoom] Found ${usersSnapshot.docs.length} total user documents in room '${roomId}'.`);
-        console.log(`[JoinRoom] All user IDs found: ${usersSnapshot.docs.map(doc => doc.id).join(', ')}`);
-        console.log(`[JoinRoom] After filtering self (${myUserId}), found ${existingOtherUsersCount} other users.`);
+        console.log(`[JoinRoom] Found ${existingUserIdsInRoom.length} total user documents in room '${roomId}'.`);
+        console.log(`[JoinRoom] All user IDs found: ${existingUserIdsInRoom.join(', ')}`);
+
+        // Identify and potentially clean up stale anonymous user IDs
+        // This logic targets the scenario: myUserId is present, and exactly one other ID is also there.
+        // It assumes that other ID is a ghost from this same browser's previous anonymous session.
+        const currentMyUserIdExists = existingUserIdsInRoom.includes(myUserId);
+        let otherUserIds = existingUserIdsInRoom.filter(id => id !== myUserId); // Re-filter after potential cleanup
+
+        if (currentMyUserIdExists && otherUserIds.length === 1) {
+            const ghostUserId = otherUserIds[0];
+            console.warn(`[JoinRoom] Potential ghost user detected: ${ghostUserId}. Attempting to clean up.`);
+            const ghostUserDocRef = doc(usersCollectionRef, ghostUserId);
+            try {
+                await deleteDoc(ghostUserDocRef);
+                console.log(`[JoinRoom] Successfully cleaned up ghost user: ${ghostUserId}`);
+                
+                // Re-fetch users after cleanup to get the correct, updated count
+                usersSnapshot = await getDocs(usersCollectionRef);
+                existingUserIdsInRoom = usersSnapshot.docs.map(doc => doc.id);
+                otherUserIds = existingUserIdsInRoom.filter(id => id !== myUserId); // Update otherUserIds
+            } catch (deleteError) {
+                console.error(`[JoinRoom] Failed to clean up ghost user ${ghostUserId}:`, deleteError);
+                // If cleanup failed, we might still proceed to check if other users are present
+            }
+        }
+        
+        // After potential cleanup, count *actual* other users again for room capacity check
+        const existingOtherUsersCount = otherUserIds.length;
+
+        console.log(`[JoinRoom] After filtering self (${myUserId}) and potential cleanup, found ${existingOtherUsersCount} other users.`);
 
         // If there's already one other user, the room is considered full (allowing for 2 total).
-        if (existingOtherUsersCount >= 1) {
+        if (existingOtherUsersCount >= 1) { // If it's still 1 after cleanup, it must be a *real* second user
           console.warn(`[JoinRoom] Room ${roomId} is full. Existing other users: ${existingOtherUsersCount}. Blocking join.`);
-          // ... rest of the code
           showCustomModal("This room is full. Only two users allowed. Please try another room code.");
           // IMPORTANT: If blocked, set user presence to offline immediately
           await updatePresence(roomId, myUserId, userName, 'offline');
@@ -692,7 +714,7 @@ function App() {
             <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-user-round text-blue-600 mb-4">
               <circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>
             </svg>
-            <h1 className="text-4xl font-extrabold text-blue-600 mb-2">Parivideo</h1>
+            <h1 className="text-4xl font-bold text-blue-600 mb-2">Parivideo</h1>
             <p className="text-lg text-gray-900 font-medium">Private Chat & Video Call</p>
           </div>
           <div className="mb-4">
