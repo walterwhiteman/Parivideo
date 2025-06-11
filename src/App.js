@@ -162,6 +162,7 @@ function App() {
 
   // Effect to periodically update presence while in a room
   useEffect(() => {
+      // Only set up interval if in chat view, and necessary Firebase/user details are available
       if (currentView === 'chat' && myUserId && roomId && userName && isAuthReady) {
           console.log(`[PresenceInterval] Setting up periodic presence update for ${userName} (${myUserId}) in room ${roomId}`);
           if (presenceIntervalRef.current) {
@@ -176,7 +177,8 @@ function App() {
 
           return () => {
               if (presenceIntervalRef.current) {
-                  console.log("[PresenceInterval] Clearing periodic presence update for ${userName} (${myUserId})");
+                  // Fixed: Changed to proper template literal
+                  console.log(`[PresenceInterval] Clearing periodic presence update for ${userName} (${myUserId})`);
                   clearInterval(presenceIntervalRef.current);
                   presenceIntervalRef.current = null;
               }
