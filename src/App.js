@@ -49,12 +49,11 @@ function App() {
   const [currentView, setCurrentView] = useState('login');
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
-  const [roomUsers, setRoomUsers] = useState({});
+  const [roomUsers, setRoomUsers] = useState({}); // Tracks users currently in the room (keyed by userName)
   const [myUserId, setMyUserId] = useState(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [modalMessage, setModalMessage] = useState('');
-  // Removed: notificationMessage state and notificationTimeoutRef ref
   const [callInitiatorId, setCallInitiatorId] = useState(null);
   const [isCalling, setIsCalling] = useState(false);
   const [isCallActive, setIsCallActive] = useState(false);
@@ -91,8 +90,6 @@ function App() {
     setModalMessage('');
   }, []);
 
-  // Removed: showTemporaryNotification function
-
   const updatePresence = useCallback(async (currentRoomId, currentUserName, currentMyUserId, status) => {
     if (!db || !currentUserName || !currentMyUserId) {
         console.warn(`[Presence] Skipping updatePresence for user ${currentUserName} (${currentMyUserId}) status ${status}: DB, UserName, or UserID not ready.`);
@@ -100,7 +97,7 @@ function App() {
     }
 
     const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, currentRoomId);
-    const userStatusRef = doc(roomDocRef, 'users', currentUserName);
+    const userStatusRef = doc(roomDocRef, 'users', currentUserName); // Keyed by userName
 
     try {
       if (status === 'online') {
@@ -130,7 +127,7 @@ function App() {
               if (db && roomId && myUserId && userName) { 
                   updatePresence(roomId, userName, myUserId, 'online');
               }
-          }, 15 * 1000);
+          }, 15 * 1000); // Update every 15 seconds
 
           return () => {
               if (presenceIntervalRef.current) {
@@ -278,7 +275,7 @@ function App() {
       );
 
       for (const leftUserName of usersWhoLeft) {
-          if (leftUserName !== userName) {
+          if (leftUserName !== userName) { // Only send for others
             console.log(`[RoomUsersEffect] Detected user ${leftUserName} left.`);
             try {
                 await addDoc(messagesCollectionRef, {
@@ -287,6 +284,7 @@ function App() {
                     text: `${leftUserName} Left (disconnected)`,
                     timestamp: serverTimestamp(),
                 });
+                console.log(`[RoomUsersEffect] System message: '${leftUserName} Left (disconnected)' sent to Firestore.`);
             } catch (error) {
                 console.error(`Error sending 'Left' message for ${leftUserName}:`, error);
             }
@@ -318,7 +316,7 @@ function App() {
 
     const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, roomId);
     const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms`, roomId, 'users');
-    const messagesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/messages`); // Re-added for 'Joined' messages
+    const messagesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/messages`);
 
     try {
       const roomDoc = await getDoc(roomDocRef);
@@ -331,7 +329,8 @@ function App() {
       }
 
       const now = Date.now();
-      const STALE_THRESHOLD_MS = 10 * 1000;
+      // Increased STALE_THRESHOLD_MS to be significantly larger than presence update interval
+      const STALE_THRESHOLD_MS = 45 * 1000; // 45 seconds (3 times the 15-second update interval)
       
       let usersSnapshotPreCleanup = await getDocs(usersCollectionRef);
       console.log(`[JoinRoom] Initial user check (before stale cleanup): Found ${usersSnapshotPreCleanup.docs.length} documents.`);
@@ -391,7 +390,7 @@ function App() {
       await updatePresence(roomId, userName.trim(), myUserId, 'online');
       console.log(`[JoinRoom] User ${userName} (${myUserId}) presence set to online after capacity and cleanup checks.`);
 
-      // Re-added: Add 'Joined' message to Firestore as a system message
+      // Add 'Joined' message to Firestore as a system message (reverted to previous behavior)
       try {
         await addDoc(messagesCollectionRef, {
             senderId: 'system',
@@ -404,9 +403,6 @@ function App() {
           console.error(`Error sending 'Joined' message for ${userName}:`, error);
       }
       
-      // Store the current userName in ref for future cleanup if needed (e.g., if user changes name)
-      // myOldUserNameRef.current = userName.trim(); // This ref was used for a different cleanup strategy, no longer strictly needed but can remain if future logic requires
-
       setCurrentView('chat');
       console.log(`[JoinRoom] Successfully joined room ${roomId}.`);
 
@@ -423,7 +419,6 @@ function App() {
 
     if (myUserId && roomId && userName) {
       await updatePresence(roomId, userName, myUserId, 'offline');
-      // Send a system message for explicit leave (this will still go to Firestore chat)
       try {
         await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/messages`), {
           senderId: 'system',
@@ -748,8 +743,6 @@ function App() {
           </div>
         </div>
       )}
-
-      {/* Removed: Temporary Notification UI */}
 
       {/* Login View (UI1.png) - Conditionally rendered */}
       {currentView === 'login' && (
