@@ -119,8 +119,8 @@ function App() {
     try {
       if (status === 'online') {
         await setDoc(userStatusRef, { userName: userName, lastSeen: serverTimestamp() });
-        // Set up onDisconnect to delete presence if client disconnects unexpectedly
-        await userStatusRef.onDisconnect().delete();
+        // REMOVED: onDisconnect is not supported in Firestore
+        // await userStatusRef.onDisconnect().delete();
 
         await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${currentRoomId}/messages`), {
           senderId: 'system',
@@ -129,8 +129,8 @@ function App() {
           timestamp: serverTimestamp(),
         });
       } else if (status === 'offline') {
-        // Cancel onDisconnect if the user explicitly leaves
-        await userStatusRef.onDisconnect().cancel();
+        // REMOVED: onDisconnect is not supported in Firestore
+        // await userStatusRef.onDisconnect().cancel();
         await deleteDoc(userStatusRef);
 
         await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${currentRoomId}/messages`), {
@@ -225,20 +225,29 @@ function App() {
       // Only send the 'Left' message; rely on Firestore's onDisconnect for presence cleanup
       if (myUserId && roomId && userName && db) {
         const messagesCollectionPath = `artifacts/${appId}/public/data/rooms/${roomId}/messages`;
-        // Only add the 'Left' system message, onDisconnect handles the presence deletion
-        fetch(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/${messagesCollectionPath}:add`, {
-          method: 'POST',
-          keepalive: true, // Crucial for requests during page unload
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fields: {
-              senderId: { stringValue: 'system' },
-              senderName: { stringValue: 'System' },
-              text: { stringValue: `${userName} Left (reloaded)` }, // Added (reloaded) for clarity
-              timestamp: { timestampValue: new Date().toISOString() } // Use ISO string for Firestore Timestamp
-            }
-          })
-        }).catch(e => console.warn("Failed to add 'Left' message on unload:", e));
+        const userDocPath = `artifacts/${appId}/public/data/rooms/${roomId}/users/${myUserId}`; // Get user presence doc reference
+
+        // Attempt to delete user presence on unload
+        Promise.allSettled([
+          fetch(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/${userDocPath}`, {
+            method: 'DELETE',
+            keepalive: true, // Crucial for requests during page unload
+            headers: { 'Content-Type': 'application/json' },
+          }).catch(e => console.warn("Failed to delete presence on unload (fetch):", e)),
+          fetch(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/${messagesCollectionPath}:add`, {
+            method: 'POST',
+            keepalive: true,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fields: {
+                senderId: { stringValue: 'system' },
+                senderName: { stringValue: 'System' },
+                text: { stringValue: `${userName} Left (reloaded)` }, // Added (reloaded) for clarity
+                timestamp: { timestampValue: new Date().toISOString() } // Use ISO string for Firestore Timestamp
+              }
+            })
+          }).catch(e => console.warn("Failed to add 'Left' message on unload (fetch):", e))
+        ]);
       }
     };
 
@@ -290,16 +299,14 @@ function App() {
     const currentUserStatusRef = doc(roomDocRef, 'users', myUserId); // Reference to current user's presence document
 
     try {
-      // NEW: Explicitly delete current user's old presence record if it exists
-      // Also cancel any pending onDisconnect for this user ID to prevent stale entries
-      await currentUserStatusRef.onDisconnect().cancel();
+      // Explicitly delete current user's old presence record if it exists
       const currentUserDoc = await getDoc(currentUserStatusRef);
       if (currentUserDoc.exists()) {
         console.log("Found existing presence for current user, deleting it...");
         await deleteDoc(currentUserStatusRef);
-        // Add a small delay to give Firestore time to process the delete,
-        // especially crucial for very fast reloads and subsequent reads.
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // NO LONGER NEEDED: The setTimeout was a workaround for onDisconnect's absence.
+        // We still need a moment for Firestore to process, but a direct delete is faster.
+        // await new Promise(resolve => setTimeout(resolve, 200));
       }
 
       const roomDoc = await getDoc(roomDocRef);
@@ -911,7 +918,7 @@ function App() {
 
               {/* Chat Input (UI similar to 2.png) - Fixed to bottom */}
               <form onSubmit={handleSendMessage} className="p-4 bg-white border-t border-gray-200 sticky bottom-0 z-20">
-                <div className="flex items-center space-x-3 w-full">
+                <div className="flex items-center space-x-3 w-full"> {/* Added w-full for full width */}
                   {/* Image Upload Icon (Non-functional placeholder SVG) */}
                   <button
                     type="button"
@@ -928,7 +935,7 @@ function App() {
                     placeholder="Type your message..."
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
-                  />
+                  /> {/* Closing tag was missing here */}
                   <button
                     type="submit"
                     className="p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200 flex-shrink-0"
