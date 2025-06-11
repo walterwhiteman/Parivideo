@@ -290,11 +290,16 @@ function App() {
     const currentUserStatusRef = doc(roomDocRef, 'users', myUserId); // Reference to current user's presence document
 
     try {
-      // --- NEW: Explicitly delete current user's old presence record if it exists ---
+      // NEW: Explicitly delete current user's old presence record if it exists
+      // Also cancel any pending onDisconnect for this user ID to prevent stale entries
+      await currentUserStatusRef.onDisconnect().cancel();
       const currentUserDoc = await getDoc(currentUserStatusRef);
       if (currentUserDoc.exists()) {
         console.log("Found existing presence for current user, deleting it...");
         await deleteDoc(currentUserStatusRef);
+        // Add a small delay to give Firestore time to process the delete,
+        // especially crucial for very fast reloads and subsequent reads.
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
 
       const roomDoc = await getDoc(roomDocRef);
@@ -303,10 +308,12 @@ function App() {
       if (roomDoc.exists()) {
         const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/users`);
         const usersSnapshot = await getDocs(usersCollectionRef);
-        existingUsersCount = usersSnapshot.size;
+        // Filter out the current user's potential stale entry if it somehow survived the delete or a race
+        existingUsersCount = usersSnapshot.docs.filter(doc => doc.id !== myUserId).length;
 
-        if (existingUsersCount >= 2) {
-          showCustomModal("This room is full. Please try another room code.");
+        // If there's already one other user, the room is considered full (allowing for 2 total).
+        if (existingUsersCount >= 1) {
+          showCustomModal("This room is full. Only two users allowed. Please try another room code.");
           return;
         }
       } else {
@@ -750,9 +757,8 @@ function App() {
       )}
 
 
-      {/* Chat and Video Call Views - Conditionally rendered */}
+      {/* Chat and Video Call Views (2.png, 4.jpg, 5.jpg) - Conditionally rendered */}
       {(currentView === 'chat' || currentView === 'videoCall') && (
-        // Changed h-screen to h-[100dvh] for more accurate viewport height on mobile
         <div className="flex flex-col flex-grow w-full max-w-full sm:max-w-sm md:max-w-md lg:max-w-xl h-[100dvh] bg-white rounded-lg shadow-xl overflow-hidden border border-gray-200">
           {/* Chat Header (UI similar to 2.png) - Fixed to top */}
           <div className="flex items-center justify-between p-4 bg-blue-600 text-white rounded-t-lg shadow-md sticky top-0 z-20">
@@ -895,49 +901,49 @@ function App() {
                       {/* Phone Off Icon SVG */}
                       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-phone-off">
                         <path d="M10.69 6.11 18.6 2.4a1 1 0 0 1 1.4 1.4L16.11 10.69"/><path d="M13.09 19.39 5.3 22.1a1 1 0 0 1-1.4-1.4l3.7-7.89"/><path d="M18.5 2.5 12 9 5.5 2.5"/><path d="m2 13 6 6 6-6"/><line x1="2" x2="22" y1="2" y2="22"/>
-                      </svg>
-                    </button>
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
-            )}
-          </div>
 
-          {/* Chat Input (UI similar to 2.png) - Fixed to bottom */}
-          <form onSubmit={handleSendMessage} className="p-4 bg-white border-t border-gray-200 sticky bottom-0 z-20">
-            <div className="flex items-center space-x-3 w-full">
-              {/* Image Upload Icon (Non-functional placeholder SVG) */}
-              <button
-                type="button"
-                onClick={() => showCustomModal("Image upload is not yet implemented.")}
-                className="p-2 rounded-full text-gray-600 hover:bg-gray-100 focus:outline-none flex-shrink-0"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-image-plus">
-                  <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/><line x1="16" x2="22" y1="5" y2="5"/><line x1="19" x2="19" y1="2" y2="8"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
-                </svg>
-              </button>
-              <input
-                type="text"
-                className="flex-grow px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400"
-                placeholder="Type your message..."
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-              />
-              <button
-                type="submit"
-                className="p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200 flex-shrink-0"
-              >
-                {/* Send Icon SVG */}
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-send">
-                  <path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M9.3 9.3 17 17"/>
-                </svg>
-              </button>
+              {/* Chat Input (UI similar to 2.png) - Fixed to bottom */}
+              <form onSubmit={handleSendMessage} className="p-4 bg-white border-t border-gray-200 sticky bottom-0 z-20">
+                <div className="flex items-center space-x-3 w-full">
+                  {/* Image Upload Icon (Non-functional placeholder SVG) */}
+                  <button
+                    type="button"
+                    onClick={() => showCustomModal("Image upload is not yet implemented.")}
+                    className="p-2 rounded-full text-gray-600 hover:bg-gray-100 focus:outline-none flex-shrink-0"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-image-plus">
+                      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/><line x1="16" x2="22" y1="5" y2="5"/><line x1="19" x2="19" y1="2" y2="8"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+                    </svg>
+                  </button>
+                  <input
+                    type="text"
+                    className="flex-grow px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400"
+                    placeholder="Type your message..."
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                  />
+                  <button
+                    type="submit"
+                    className="p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200 flex-shrink-0"
+                  >
+                    {/* Send Icon SVG */}
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-send">
+                      <path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M9.3 9.3 17 17"/>
+                    </svg>
+                  </button>
+                </div>
+              </form>
             </div>
-          </form>
+          )}
         </div>
-      )}
-    </div>
-  );
-}
+      );
+    }
 
-export default App;
+    export default App;
