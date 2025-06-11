@@ -54,7 +54,7 @@ function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [modalMessage, setModalMessage] = useState('');
-  const [notificationMessage, setNotificationMessage] = useState(''); // NEW state for temporary notifications
+  // Removed: notificationMessage state and notificationTimeoutRef ref
   const [callInitiatorId, setCallInitiatorId] = useState(null);
   const [isCalling, setIsCalling] = useState(false);
   const [isCallActive, setIsCallActive] = useState(false);
@@ -63,7 +63,6 @@ function App() {
   const [callTimer, setCallTimer] = useState(0);
   const callTimerRef = useRef(null);
   const presenceIntervalRef = useRef(null);
-  const notificationTimeoutRef = useRef(null); // Ref for notification timeout
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -92,20 +91,7 @@ function App() {
     setModalMessage('');
   }, []);
 
-  /**
-   * NEW: Function to show a temporary, non-blocking notification.
-   */
-  const showTemporaryNotification = useCallback((message, duration = 3000) => {
-    setNotificationMessage(message);
-    if (notificationTimeoutRef.current) {
-        clearTimeout(notificationTimeoutRef.current);
-    }
-    notificationTimeoutRef.current = setTimeout(() => {
-        setNotificationMessage('');
-        notificationTimeoutRef.current = null;
-    }, duration);
-  }, []);
-
+  // Removed: showTemporaryNotification function
 
   const updatePresence = useCallback(async (currentRoomId, currentUserName, currentMyUserId, status) => {
     if (!db || !currentUserName || !currentMyUserId) {
@@ -332,7 +318,7 @@ function App() {
 
     const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, roomId);
     const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms`, roomId, 'users');
-    // Removed messagesCollectionRef as 'Joined' messages are no longer added to Firestore.
+    const messagesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/messages`); // Re-added for 'Joined' messages
 
     try {
       const roomDoc = await getDoc(roomDocRef);
@@ -405,13 +391,17 @@ function App() {
       await updatePresence(roomId, userName.trim(), myUserId, 'online');
       console.log(`[JoinRoom] User ${userName} (${myUserId}) presence set to online after capacity and cleanup checks.`);
 
-      // Step 6: Trigger local notification for 'Joined'. NO LONGER ADDED TO FIRESTORE.
-      if (!isRejoiningSameUser) {
-        showTemporaryNotification(`${userName.trim()} Joined!`);
-        console.log(`[JoinRoom] Local notification: '${userName} Joined!' sent.`);
-      } else {
-        showTemporaryNotification(`${userName.trim()} Rejoined!`); // Optional: A specific message for rejoining
-        console.log(`[JoinRoom] User ${userName} rejoined. Local notification sent.`);
+      // Re-added: Add 'Joined' message to Firestore as a system message
+      try {
+        await addDoc(messagesCollectionRef, {
+            senderId: 'system',
+            senderName: 'System',
+            text: isRejoiningSameUser ? `${userName.trim()} Rejoined` : `${userName.trim()} Joined`,
+            timestamp: serverTimestamp(),
+        });
+        console.log(`[JoinRoom] System message: '${userName} Joined/Rejoined' sent to Firestore.`);
+      } catch (error) {
+          console.error(`Error sending 'Joined' message for ${userName}:`, error);
       }
       
       // Store the current userName in ref for future cleanup if needed (e.g., if user changes name)
@@ -759,13 +749,7 @@ function App() {
         </div>
       )}
 
-      {/* NEW: Temporary Notification UI (conditionally rendered) */}
-      {notificationMessage && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-lg font-semibold px-6 py-3 rounded-full shadow-lg z-40 animate-fade-in-out">
-          {notificationMessage}
-        </div>
-      )}
-
+      {/* Removed: Temporary Notification UI */}
 
       {/* Login View (UI1.png) - Conditionally rendered */}
       {currentView === 'login' && (
@@ -909,7 +893,7 @@ function App() {
                 key={msg.id}
                 className={`flex ${msg.senderId === myUserId ? 'justify-end' : 'justify-start'}`}
               >
-                {/* System messages (e.g., "User Joined") */}
+                {/* System messages (e.g., "User Joined", "User Left") */}
                 {msg.senderId === 'system' ? (
                   <div className="text-center w-full">
                     <span className="text-xs text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
