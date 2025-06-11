@@ -287,8 +287,16 @@ function App() {
     }
 
     const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, roomId);
+    const currentUserStatusRef = doc(roomDocRef, 'users', myUserId); // Reference to current user's presence document
 
     try {
+      // --- NEW: Explicitly delete current user's old presence record if it exists ---
+      const currentUserDoc = await getDoc(currentUserStatusRef);
+      if (currentUserDoc.exists()) {
+        console.log("Found existing presence for current user, deleting it...");
+        await deleteDoc(currentUserStatusRef);
+      }
+
       const roomDoc = await getDoc(roomDocRef);
       let existingUsersCount = 0;
 
