@@ -124,16 +124,10 @@ function App() {
       if (status === 'online') {
         // Use setDoc to implicitly create or overwrite the presence document
         await setDoc(userStatusRef, { userName: userName, lastSeen: serverTimestamp() });
-        // Adding a system message for joining is handled in handleJoinRoom now for better control
+        console.log(`[Presence] User ${userId} set to online.`);
       } else if (status === 'offline') {
         await deleteDoc(userStatusRef);
-        // Only add 'Left' message if user was truly online and now leaving
-        await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${currentRoomId}/messages`), {
-          senderId: 'system',
-          senderName: 'System',
-          text: `${userName} Left`,
-          timestamp: serverTimestamp(),
-        });
+        console.log(`[Presence] User ${userId} set to offline (deleted).`);
       }
     } catch (error) {
       console.error(`Error updating presence for ${userId} to ${status}:`, error);
@@ -257,26 +251,32 @@ function App() {
 
   // Effect to listen for real-time updates on room users (presence)
   useEffect(() => {
-    if (!db || !roomId || (currentView !== 'chat' && currentView !== 'videoCall' && currentView !== 'incomingCall') || !myUserId) return;
+    if (!db || !roomId || !myUserId || !isAuthReady) {
+        console.log("[RoomUsersEffect] Skipping onSnapshot setup: DB, RoomID, UserID, or Auth not ready.");
+        return;
+    }
 
-    const roomUsersRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/users`);
+    const roomUsersRef = collection(db, `artifacts/${appId}/public/data/rooms`, roomId, 'users');
     const q = query(roomUsersRef);
 
+    console.log(`[RoomUsersEffect] Setting up onSnapshot for room: ${roomId}`);
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const usersData = {};
       snapshot.forEach((doc) => {
         usersData[doc.id] = doc.data();
       });
+      console.log(`[RoomUsersEffect] onSnapshot received ${snapshot.docs.length} user documents.`);
+      console.log("[RoomUsersEffect] Parsed usersData:", usersData);
       setRoomUsers(usersData); // This should now correctly capture all present users
     }, (error) => {
-      console.error("Error fetching room users:", error);
+      console.error("[RoomUsersEffect] Error fetching room users:", error);
     });
 
     return () => {
-      unsubscribe();
+        console.log(`[RoomUsersEffect] Unsubscribing from room users for room: ${roomId}`);
+        unsubscribe();
     };
-  }, [roomId, currentView, myUserId, updatePresence, setRoomUsers]);
-
+  }, [db, roomId, myUserId, isAuthReady]); // Added db and isAuthReady to dependencies
 
   // Function to handle joining a room
   const handleJoinRoom = async () => {
@@ -292,50 +292,9 @@ function App() {
     const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, roomId);
 
     try {
-      // 1. Set current user's presence to 'online' FIRST. This acts as an upsert.
-      await updatePresence(roomId, myUserId, userName, 'online');
-      console.log(`[JoinRoom] Presence for user ${myUserId} in room ${roomId} set to online.`);
-      
-      // Add 'Joined' system message after presence is set.
-      await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/messages`), {
-        senderId: 'system',
-        senderName: 'System',
-        text: `${userName} Joined`,
-        timestamp: serverTimestamp(),
-      });
-
-      // Introduce a small delay to allow Firestore to propagate the new presence.
-      // This helps ensure consistency for the subsequent getDocs call.
-      await new Promise(resolve => setTimeout(resolve, 500)); // Wait for 500ms
-
-      const roomDoc = await getDoc(roomDocRef);
-      
-      if (roomDoc.exists()) {
-        const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/users`);
-        const usersSnapshot = await getDocs(usersCollectionRef); // Get the latest snapshot
-        
-        let existingUserIdsInRoom = usersSnapshot.docs.map(doc => doc.id);
-        
-        console.log(`[JoinRoom] Found ${existingUserIdsInRoom.length} total user documents in room '${roomId}'.`);
-        console.log(`[JoinRoom] All user IDs found: ${existingUserIdsInRoom.join(', ')}`);
-
-        // Filter out the current user's ID to count only *other* users.
-        const otherUserIds = existingUserIdsInRoom.filter(id => id !== myUserId);
-        const existingOtherUsersCount = otherUserIds.length; // Count of actual *other* distinct users
-        
-        console.log(`[JoinRoom] After filtering self (${myUserId}), found ${existingOtherUsersCount} other users.`);
-
-        // --- ENFORCE TWO-USER LIMIT ---
-        // If there's already one other user, the room is considered full (allowing for 2 total).
-        if (existingOtherUsersCount >= 1) { // If there's already one other user, the room is full
-          console.warn(`[JoinRoom] Room ${roomId} is full. Existing other users: ${existingOtherUsersCount}. Blocking join.`);
-          showCustomModal("This room is full. Only two users allowed. Please try another room code.");
-          // IMPORTANT: If blocked, set user presence to offline immediately
-          await updatePresence(roomId, myUserId, userName, 'offline');
-          return;
-        }
-      } else {
-        // Room does not exist, create it. Presence for current user already set above.
+      // Step 1: Ensure the room exists. Create if not.
+      const roomExistsCheck = await getDoc(roomDocRef);
+      if (!roomExistsCheck.exists()) {
         await setDoc(roomDocRef, {
           name: roomId,
           createdAt: serverTimestamp(),
@@ -343,7 +302,48 @@ function App() {
         console.log(`[JoinRoom] Room ${roomId} created.`);
       }
 
-      // If we reach here, the user can successfully join
+      // Step 2: Set current user's presence to 'online'.
+      // This is an upsert: it creates or overwrites your presence.
+      await updatePresence(roomId, myUserId, userName, 'online');
+      console.log(`[JoinRoom] User ${myUserId} presence set to online.`);
+
+      // Add 'Joined' system message here.
+      await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/messages`), {
+        senderId: 'system',
+        senderName: 'System',
+        text: `${userName} Joined`,
+        timestamp: serverTimestamp(),
+      });
+
+      // Step 3: Crucial delay to allow Firestore to propagate presence.
+      // This helps subsequent `getDocs` see the most up-to-date user list.
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Increased delay to 1000ms (1 second) for better consistency
+
+      // Step 4: Re-fetch user list for capacity check.
+      const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms`, roomId, 'users');
+      const usersSnapshot = await getDocs(usersCollectionRef);
+      
+      const existingUserIdsInRoom = usersSnapshot.docs.map(doc => doc.id);
+      console.log(`[JoinRoom] Post-delay, found ${existingUserIdsInRoom.length} total user documents in room '${roomId}'.`);
+      console.log(`[JoinRoom] Post-delay, all user IDs found: ${existingUserIdsInRoom.join(', ')}`);
+
+      // Filter out the current user's ID to count only *other* users.
+      const otherUserIds = existingUserIdsInRoom.filter(id => id !== myUserId);
+      const existingOtherUsersCount = otherUserIds.length;
+      
+      console.log(`[JoinRoom] Post-delay, after filtering self (${myUserId}), found ${existingOtherUsersCount} other users.`);
+
+      // Step 5: Enforce two-user limit.
+      // If there's already one other user (meaning total 2), the room is full.
+      if (existingOtherUsersCount >= 1) {
+        console.warn(`[JoinRoom] Room ${roomId} is full. Existing other users: ${existingOtherUsersCount}. Blocking join.`);
+        showCustomModal("This room is full. Only two users allowed. Please try another room code.");
+        // If blocked, immediately set user presence to offline to free up space.
+        await updatePresence(roomId, myUserId, userName, 'offline');
+        return;
+      }
+
+      // If all checks pass, successfully join the chat.
       setCurrentView('chat');
       console.log(`[JoinRoom] Successfully joined room ${roomId}.`);
 
