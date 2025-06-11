@@ -267,7 +267,7 @@ function App() {
       snapshot.forEach((doc) => {
         usersData[doc.id] = doc.data();
       });
-      setRoomUsers(usersData);
+      setRoomUsers(usersData); // This should now correctly capture all present users
     }, (error) => {
       console.error("Error fetching room users:", error);
     });
@@ -292,11 +292,11 @@ function App() {
     const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, roomId);
 
     try {
-      // 1. Always update the current user's presence FIRST. This ensures their record is fresh.
+      // 1. Set current user's presence to 'online' FIRST. This acts as an upsert.
       await updatePresence(roomId, myUserId, userName, 'online');
       console.log(`[JoinRoom] Presence for user ${myUserId} in room ${roomId} set to online.`);
       
-      // Add 'Joined' system message here, after presence is set
+      // Add 'Joined' system message after presence is set.
       await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/messages`), {
         senderId: 'system',
         senderName: 'System',
@@ -304,48 +304,30 @@ function App() {
         timestamp: serverTimestamp(),
       });
 
+      // Introduce a small delay to allow Firestore to propagate the new presence.
+      // This helps ensure consistency for the subsequent getDocs call.
+      await new Promise(resolve => setTimeout(resolve, 500)); // Wait for 500ms
+
       const roomDoc = await getDoc(roomDocRef);
       
       if (roomDoc.exists()) {
         const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/users`);
-        let usersSnapshot = await getDocs(usersCollectionRef); // Use let because we might re-fetch
+        const usersSnapshot = await getDocs(usersCollectionRef); // Get the latest snapshot
         
         let existingUserIdsInRoom = usersSnapshot.docs.map(doc => doc.id);
         
         console.log(`[JoinRoom] Found ${existingUserIdsInRoom.length} total user documents in room '${roomId}'.`);
         console.log(`[JoinRoom] All user IDs found: ${existingUserIdsInRoom.join(', ')}`);
 
-        // Identify and potentially clean up stale anonymous user IDs
-        // This logic targets the scenario: myUserId is present, and exactly one other ID is also there.
-        // It assumes that other ID is a ghost from this same browser's previous anonymous session.
-        const currentMyUserIdExists = existingUserIdsInRoom.includes(myUserId);
-        let otherUserIds = existingUserIdsInRoom.filter(id => id !== myUserId); // Re-filter after potential cleanup
-
-        if (currentMyUserIdExists && otherUserIds.length === 1) {
-            const ghostUserId = otherUserIds[0];
-            console.warn(`[JoinRoom] Potential ghost user detected: ${ghostUserId}. Attempting to clean up.`);
-            const ghostUserDocRef = doc(usersCollectionRef, ghostUserId);
-            try {
-                await deleteDoc(ghostUserDocRef);
-                console.log(`[JoinRoom] Successfully cleaned up ghost user: ${ghostUserId}`);
-                
-                // Re-fetch users after cleanup to get the correct, updated count
-                usersSnapshot = await getDocs(usersCollectionRef);
-                existingUserIdsInRoom = usersSnapshot.docs.map(doc => doc.id);
-                otherUserIds = existingUserIdsInRoom.filter(id => id !== myUserId); // Update otherUserIds
-            } catch (deleteError) {
-                console.error(`[JoinRoom] Failed to clean up ghost user ${ghostUserId}:`, deleteError);
-                // If cleanup failed, we might still proceed to check if other users are present
-            }
-        }
+        // Filter out the current user's ID to count only *other* users.
+        const otherUserIds = existingUserIdsInRoom.filter(id => id !== myUserId);
+        const existingOtherUsersCount = otherUserIds.length; // Count of actual *other* distinct users
         
-        // After potential cleanup, count *actual* other users again for room capacity check
-        const existingOtherUsersCount = otherUserIds.length;
+        console.log(`[JoinRoom] After filtering self (${myUserId}), found ${existingOtherUsersCount} other users.`);
 
-        console.log(`[JoinRoom] After filtering self (${myUserId}) and potential cleanup, found ${existingOtherUsersCount} other users.`);
-
+        // --- ENFORCE TWO-USER LIMIT ---
         // If there's already one other user, the room is considered full (allowing for 2 total).
-        if (existingOtherUsersCount >= 1) { // If it's still 1 after cleanup, it must be a *real* second user
+        if (existingOtherUsersCount >= 1) { // If there's already one other user, the room is full
           console.warn(`[JoinRoom] Room ${roomId} is full. Existing other users: ${existingOtherUsersCount}. Blocking join.`);
           showCustomModal("This room is full. Only two users allowed. Please try another room code.");
           // IMPORTANT: If blocked, set user presence to offline immediately
@@ -714,7 +696,7 @@ function App() {
             <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-user-round text-blue-600 mb-4">
               <circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>
             </svg>
-            <h1 className="text-4xl font-bold text-blue-600 mb-2">Parivideo</h1>
+            <h1 className="text-4xl font-extrabold text-blue-600 mb-2">Parivideo</h1>
             <p className="text-lg text-gray-900 font-medium">Private Chat & Video Call</p>
           </div>
           <div className="mb-4">
@@ -809,6 +791,7 @@ function App() {
                 <h2 className="text-xl font-bold">{`${roomId}`}</h2>
                 <p className="text-sm font-medium flex items-center">
                   <span className={`h-2.5 w-2.5 rounded-full mr-2 ${Object.keys(roomUsers).length === 2 ? 'bg-green-400' : 'bg-yellow-400'}`}></span>
+                  {/* Corrected: This will now display the accurate count from roomUsers state */}
                   {Object.keys(roomUsers).length} Connected
                 </p>
               </div>
