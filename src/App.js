@@ -263,7 +263,7 @@ function App() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const usersData = {};
       snapshot.forEach((doc) => {
-        usersData[doc.id] = doc.data();
+        usersData[doc.id] = doc.data(); // Populate usersData with user IDs and their data
       });
       console.log(`[RoomUsersEffect] onSnapshot received ${snapshot.docs.length} user documents.`);
       console.log("[RoomUsersEffect] Parsed usersData:", usersData);
@@ -276,7 +276,7 @@ function App() {
         console.log(`[RoomUsersEffect] Unsubscribing from room users for room: ${roomId}`);
         unsubscribe();
     };
-  }, [roomId, myUserId, isAuthReady]); // Added db and isAuthReady to dependencies
+  }, [db, roomId, myUserId, isAuthReady]); // Added db and isAuthReady to dependencies
 
   // Function to handle joining a room
   const handleJoinRoom = async () => {
@@ -290,11 +290,12 @@ function App() {
     }
 
     const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, roomId);
+    const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms`, roomId, 'users');
 
     try {
       // Step 1: Ensure the room exists. Create if not.
-      const roomExistsCheck = await getDoc(roomDocRef);
-      if (!roomExistsCheck.exists()) {
+      const roomDoc = await getDoc(roomDocRef);
+      if (!roomDoc.exists()) {
         await setDoc(roomDocRef, {
           name: roomId,
           createdAt: serverTimestamp(),
@@ -302,12 +303,30 @@ function App() {
         console.log(`[JoinRoom] Room ${roomId} created.`);
       }
 
-      // Step 2: Set current user's presence to 'online'.
-      // This is an upsert: it creates or overwrites your presence.
-      await updatePresence(roomId, myUserId, userName, 'online');
-      console.log(`[JoinRoom] User ${myUserId} presence set to online.`);
+      // Step 2: Get current users *before* adding self, to check capacity.
+      // This is crucial to get an accurate count *before* your own presence is guaranteed to be in the snapshot.
+      const usersSnapshot = await getDocs(usersCollectionRef);
+      const existingUserIdsInRoom = usersSnapshot.docs.map(doc => doc.id);
+      
+      console.log(`[JoinRoom] Pre-join check: Found ${existingUserIdsInRoom.length} current user documents in room '${roomId}'.`);
+      console.log(`[JoinRoom] Pre-join check: All user IDs found: ${existingUserIdsInRoom.join(', ')}`);
 
-      // Add 'Joined' system message here.
+      // Step 3: Enforce the 2-user limit.
+      // If there are already 2 or more users (including potentially stale ones that haven't been cleaned up yet),
+      // or if your own new presence will make it 3, then block.
+      // The `onSnapshot` for roomUsers will keep the UI updated.
+      if (existingUserIdsInRoom.length >= 2) {
+        showCustomModal("This room is full. Only two users allowed. Please try another room code.");
+        console.warn(`[JoinRoom] Room ${roomId} is full. Blocking join. Current users found: ${existingUserIdsInRoom.length}`);
+        return; // IMPORTANT: Do not proceed if room is full
+      }
+
+      // Step 4: If capacity is available, set current user's presence to 'online'.
+      // This is now performed *after* the capacity check.
+      await updatePresence(roomId, myUserId, userName, 'online');
+      console.log(`[JoinRoom] User ${myUserId} presence set to online after capacity check.`);
+
+      // Step 5: Add 'Joined' system message here.
       await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/messages`), {
         senderId: 'system',
         senderName: 'System',
@@ -315,35 +334,7 @@ function App() {
         timestamp: serverTimestamp(),
       });
 
-      // Step 3: Crucial delay to allow Firestore to propagate presence.
-      // This helps subsequent `getDocs` see the most up-to-date user list.
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Increased delay to 1000ms (1 second) for better consistency
-
-      // Step 4: Re-fetch user list for capacity check.
-      const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms`, roomId, 'users');
-      const usersSnapshot = await getDocs(usersCollectionRef);
-      
-      const existingUserIdsInRoom = usersSnapshot.docs.map(doc => doc.id);
-      console.log(`[JoinRoom] Post-delay, found ${existingUserIdsInRoom.length} total user documents in room '${roomId}'.`);
-      console.log(`[JoinRoom] Post-delay, all user IDs found: ${existingUserIdsInRoom.join(', ')}`);
-
-      // Filter out the current user's ID to count only *other* users.
-      const otherUserIds = existingUserIdsInRoom.filter(id => id !== myUserId);
-      const existingOtherUsersCount = otherUserIds.length;
-      
-      console.log(`[JoinRoom] Post-delay, after filtering self (${myUserId}), found ${existingOtherUsersCount} other users.`);
-
-      // Step 5: Enforce two-user limit.
-      // If there's already one other user (meaning total 2), the room is full.
-      if (existingOtherUsersCount >= 1) {
-        console.warn(`[JoinRoom] Room ${roomId} is full. Existing other users: ${existingOtherUsersCount}. Blocking join.`);
-        showCustomModal("This room is full. Only two users allowed. Please try another room code.");
-        // If blocked, immediately set user presence to offline to free up space.
-        await updatePresence(roomId, myUserId, userName, 'offline');
-        return;
-      }
-
-      // If all checks pass, successfully join the chat.
+      // Step 6: Transition to the chat view.
       setCurrentView('chat');
       console.log(`[JoinRoom] Successfully joined room ${roomId}.`);
 
@@ -791,7 +782,6 @@ function App() {
                 <h2 className="text-xl font-bold">{`${roomId}`}</h2>
                 <p className="text-sm font-medium flex items-center">
                   <span className={`h-2.5 w-2.5 rounded-full mr-2 ${Object.keys(roomUsers).length === 2 ? 'bg-green-400' : 'bg-yellow-400'}`}></span>
-                  {/* Corrected: This will now display the accurate count from roomUsers state */}
                   {Object.keys(roomUsers).length} Connected
                 </p>
               </div>
