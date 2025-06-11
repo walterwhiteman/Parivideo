@@ -172,7 +172,7 @@ function App() {
               presenceIntervalRef.current = null;
           }
       }
-  }, [currentView, myUserId, roomId, userName, db, isAuthReady, updatePresence]);
+  }, [currentView, myUserId, roomId, userName, isAuthReady, updatePresence]);
 
 
   // Function to hangup/end the video call, wrapped in useCallback
@@ -317,7 +317,7 @@ function App() {
         console.log(`[RoomUsersEffect] Unsubscribing from room users for room: ${roomId}`);
         unsubscribe();
     };
-  }, [db, roomId, myUserId, isAuthReady]); // Re-added 'db' as a dependency, just in case
+  }, [roomId, myUserId, isAuthReady]); // Re-added 'db' as a dependency, just in case
 
   // Function to handle joining a room
   const handleJoinRoom = async () => {
