@@ -16,7 +16,8 @@ import {
   serverTimestamp,
   getDocs,
 } from 'firebase/firestore';
-import { ref, onDisconnect, set, remove } from 'firebase/database'; // Import from Realtime Database
+// Removed unused imports from 'firebase/database'
+// import { ref, onDisconnect, set, remove } from 'firebase/database'; // Import from Realtime Database
 
 // Check for existing global Firebase instances first to avoid re-initialization warnings
 // This is important for hot-reloading in development and in environments like Canvas
@@ -175,7 +176,7 @@ function App() {
 
           return () => {
               if (presenceIntervalRef.current) {
-                  console.log(`[PresenceInterval] Clearing periodic presence update for ${userName} (${myUserId})`);
+                  console.log("[PresenceInterval] Clearing periodic presence update for ${userName} (${myUserId})");
                   clearInterval(presenceIntervalRef.current);
                   presenceIntervalRef.current = null;
               }
@@ -358,7 +359,7 @@ function App() {
         console.log(`[RoomUsersEffect] Unsubscribing from room users for room: ${roomId}`);
         unsubscribe();
     };
-  }, [roomId, userName, isAuthReady]); // myUserId is not directly needed for the path now, but userName is
+  }, [roomId, userName, isAuthReady, roomUsers]); // Added roomUsers to dependency array
 
   // Function to handle joining a room
   const handleJoinRoom = async () => {
