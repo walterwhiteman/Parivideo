@@ -112,6 +112,8 @@ function App() {
 
 
   // Function to update user's online/offline presence in Firestore
+  // This function now primarily handles setting the presence state.
+  // The 'online' status uses setDoc (upsert). 'offline' uses deleteDoc.
   const updatePresence = useCallback(async (currentRoomId, userId, userName, status) => {
     if (!db || !userId) return;
 
@@ -120,12 +122,12 @@ function App() {
 
     try {
       if (status === 'online') {
+        // Use setDoc to implicitly create or overwrite the presence document
         await setDoc(userStatusRef, { userName: userName, lastSeen: serverTimestamp() });
-        // Removed: onDisconnect is not supported in Firestore
+        // Adding a system message for joining is handled in handleJoinRoom now for better control
       } else if (status === 'offline') {
-        // Removed: onDisconnect is not supported in Firestore
         await deleteDoc(userStatusRef);
-
+        // Only add 'Left' message if user was truly online and now leaving
         await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${currentRoomId}/messages`), {
           senderId: 'system',
           senderName: 'System',
@@ -134,7 +136,7 @@ function App() {
         });
       }
     } catch (error) {
-      console.error("Error updating presence:", error);
+      console.error(`Error updating presence for ${userId} to ${status}:`, error);
     }
   }, []);
 
@@ -288,43 +290,57 @@ function App() {
     }
 
     const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, roomId);
-    const currentUserStatusRef = doc(roomDocRef, 'users', myUserId); // Reference to current user's presence document
 
     try {
-      // --- NEW FIX: Explicitly delete current user's old presence record to ensure cleanup ---
-      const currentUserDoc = await getDoc(currentUserStatusRef);
-      if (currentUserDoc.exists()) {
-        console.log("Found existing presence for current user, deleting it...");
-        await deleteDoc(currentUserStatusRef);
-      }
+      // 1. Always update the current user's presence FIRST. This ensures their record is fresh.
+      await updatePresence(roomId, myUserId, userName, 'online');
+      console.log(`[JoinRoom] Presence for user ${myUserId} in room ${roomId} set to online.`);
+      
+      // Add 'Joined' system message here, after presence is set
+      await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/messages`), {
+        senderId: 'system',
+        senderName: 'System',
+        text: `${userName} Joined`,
+        timestamp: serverTimestamp(),
+      });
+
 
       const roomDoc = await getDoc(roomDocRef);
-      let existingUsersCount = 0;
+      let existingOtherUsersCount = 0; // Renamed for clarity
 
       if (roomDoc.exists()) {
         const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/users`);
         const usersSnapshot = await getDocs(usersCollectionRef);
+        
         // Filter out the current user's ID to count only *other* users.
-        existingUsersCount = usersSnapshot.docs.filter(doc => doc.id !== myUserId).length;
+        const otherUsersDocs = usersSnapshot.docs.filter(doc => doc.id !== myUserId);
+        existingOtherUsersCount = otherUsersDocs.length;
+        
+        console.log(`[JoinRoom] Found ${usersSnapshot.docs.length} total user documents in room '${roomId}'. After filtering self (${myUserId}), found ${existingOtherUsersCount} other users.`);
 
         // If there's already one other user, the room is considered full (allowing for 2 total).
-        if (existingUsersCount >= 1) { // Changed condition to check for one other user
+        if (existingOtherUsersCount >= 1) {
+          console.warn(`[JoinRoom] Room ${roomId} is full. Existing other users: ${existingOtherUsersCount}. Blocking join.`);
           showCustomModal("This room is full. Only two users allowed. Please try another room code.");
+          // IMPORTANT: If blocked, set user presence to offline immediately
+          await updatePresence(roomId, myUserId, userName, 'offline');
           return;
         }
       } else {
+        // Room does not exist, create it. Presence for current user already set above.
         await setDoc(roomDocRef, {
           name: roomId,
           createdAt: serverTimestamp(),
         });
+        console.log(`[JoinRoom] Room ${roomId} created.`);
       }
 
-      await updatePresence(roomId, myUserId, userName, 'online');
-
+      // If we reach here, the user can successfully join
       setCurrentView('chat');
+      console.log(`[JoinRoom] Successfully joined room ${roomId}.`);
 
     } catch (error) {
-      console.error("Error joining room:", error);
+      console.error("[JoinRoom] Error joining room (caught in handleJoinRoom):", error);
       showCustomModal(`Failed to join room: ${error.message}`);
     }
   };
