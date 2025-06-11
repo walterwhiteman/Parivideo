@@ -278,7 +278,7 @@ function App() {
         console.log(`[RoomUsersEffect] Unsubscribing from room users for room: ${roomId}`);
         unsubscribe();
     };
-  }, [db, roomId, myUserId, isAuthReady]); // Re-added 'db' as a dependency, just in case
+  }, [roomId, myUserId, isAuthReady]);
 
   // Function to handle joining a room
   const handleJoinRoom = async () => {
