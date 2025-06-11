@@ -111,39 +111,39 @@ function App() {
 
   // Function to update user's online/offline presence in Firestore
   const updatePresence = useCallback(async (currentRoomId, userId, userName, status) => {
-  if (!db || !userId) return;
+    if (!db || !userId) return;
 
-  const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, currentRoomId);
-  const userStatusRef = doc(roomDocRef, 'users', userId);
+    const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, currentRoomId);
+    const userStatusRef = doc(roomDocRef, 'users', userId);
 
-  try {
-    if (status === 'online') {
-      await setDoc(userStatusRef, { userName: userName, lastSeen: serverTimestamp() });
-      // --- NEW: Set up onDisconnect to delete presence if client disconnects unexpectedly ---
-      await userStatusRef.onDisconnect().delete();
+    try {
+      if (status === 'online') {
+        await setDoc(userStatusRef, { userName: userName, lastSeen: serverTimestamp() });
+        // --- NEW: Set up onDisconnect to delete presence if client disconnects unexpectedly ---
+        await userStatusRef.onDisconnect().delete();
 
-      await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${currentRoomId}/messages`), {
-        senderId: 'system',
-        senderName: 'System',
-        text: `${userName} Joined`,
-        timestamp: serverTimestamp(),
-      });
-    } else if (status === 'offline') {
-      // --- NEW: Cancel onDisconnect if the user explicitly leaves ---
-      await userStatusRef.onDisconnect().cancel();
-      await deleteDoc(userStatusRef);
+        await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${currentRoomId}/messages`), {
+          senderId: 'system',
+          senderName: 'System',
+          text: `${userName} Joined`,
+          timestamp: serverTimestamp(),
+        });
+      } else if (status === 'offline') {
+        // --- NEW: Cancel onDisconnect if the user explicitly leaves ---
+        await userStatusRef.onDisconnect().cancel();
+        await deleteDoc(userStatusRef);
 
-      await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${currentRoomId}/messages`), {
-        senderId: 'system',
-        senderName: 'System',
-        text: `${userName} Left`,
-        timestamp: serverTimestamp(),
-      });
+        await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${currentRoomId}/messages`), {
+          senderId: 'system',
+          senderName: 'System',
+          text: `${userName} Left`,
+          timestamp: serverTimestamp(),
+        });
+      }
+    } catch (error) {
+      console.error("Error updating presence:", error);
     }
-  } catch (error) {
-    console.error("Error updating presence:", error);
-  }
-}, []);
+  }, []);
 
   // Function to hangup/end the video call, wrapped in useCallback
   const hangupCall = useCallback(async () => {
@@ -629,9 +629,15 @@ function App() {
     );
   }
 
+  // Determine outer container classes based on current view
+  const outerContainerClasses =
+    currentView === 'login' || currentView === 'incomingCall'
+      ? 'flex flex-col items-center justify-center min-h-screen bg-white font-sans antialiased'
+      : 'flex flex-col min-h-screen bg-white font-sans antialiased'; // Removed centering for chat/video views
+
   // Main render logic based on currentView state
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-white font-sans antialiased">
+    <div className={outerContainerClasses}>
       {/* Custom Modal for Alerts (conditionally rendered) */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -656,7 +662,7 @@ function App() {
               <circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>
             </svg>
             <h1 className="text-4xl font-extrabold text-blue-600 mb-2">Parivideo</h1>
-            <p className="text-lg text-gray-900 font-medium">Private Chat & Video Call</p> {/* Changed text-gray-700 to text-gray-900 */}
+            <p className="text-lg text-gray-900 font-medium">Private Chat & Video Call</p>
           </div>
           <div className="mb-4">
             <label htmlFor="roomCode" className="sr-only">Room Code</label>
@@ -738,7 +744,7 @@ function App() {
 
       {/* Chat and Video Call Views (2.png, 4.jpg, 5.jpg) - Conditionally rendered */}
       {(currentView === 'chat' || currentView === 'videoCall') && (
-       <div className="flex flex-col w-full max-w-full sm:max-w-sm md:max-w-md lg:max-w-xl h-screen bg-white rounded-lg shadow-xl overflow-hidden border border-gray-200">
+        <div className="flex flex-col w-full max-w-full sm:max-w-sm md:max-w-md lg:max-w-xl h-screen bg-white rounded-lg shadow-xl overflow-hidden border border-gray-200">
           {/* Chat Header (UI similar to 2.png) - Fixed to top */}
           <div className="flex items-center justify-between p-4 bg-blue-600 text-white rounded-t-lg shadow-md sticky top-0 z-20">
             <div className="flex items-center space-x-3">
@@ -924,5 +930,3 @@ function App() {
     </div>
   );
 }
-
-export default App;
