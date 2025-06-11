@@ -115,14 +115,16 @@ function App() {
   // This function now primarily handles setting the presence state.
   // The 'online' status uses setDoc (upsert). 'offline' uses deleteDoc.
   const updatePresence = useCallback(async (currentRoomId, userId, userName, status) => {
-    if (!db || !userId) return;
+    if (!db || !userId) {
+        console.warn(`[Presence] Skipping updatePresence for user ${userId} status ${status}: DB or UserID not ready.`);
+        return;
+    }
 
     const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, currentRoomId);
     const userStatusRef = doc(roomDocRef, 'users', userId);
 
     try {
       if (status === 'online') {
-        // Use setDoc to implicitly create or overwrite the presence document
         await setDoc(userStatusRef, { userName: userName, lastSeen: serverTimestamp() });
         console.log(`[Presence] User ${userId} set to online.`);
       } else if (status === 'offline') {
@@ -259,14 +261,14 @@ function App() {
     const roomUsersRef = collection(db, `artifacts/${appId}/public/data/rooms`, roomId, 'users');
     const q = query(roomUsersRef);
 
-    console.log(`[RoomUsersEffect] Setting up onSnapshot for room: ${roomId}`);
+    console.log(`[RoomUsersEffect] Setting up onSnapshot for room: ${roomId} with query:`, q);
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const usersData = {};
       snapshot.forEach((doc) => {
         usersData[doc.id] = doc.data(); // Populate usersData with user IDs and their data
       });
       console.log(`[RoomUsersEffect] onSnapshot received ${snapshot.docs.length} user documents.`);
-      console.log("[RoomUsersEffect] Parsed usersData:", usersData);
+      console.log("[RoomUsersEffect] Parsed usersData (from snapshot):", usersData);
       setRoomUsers(usersData); // This should now correctly capture all present users
     }, (error) => {
       console.error("[RoomUsersEffect] Error fetching room users:", error);
@@ -276,7 +278,7 @@ function App() {
         console.log(`[RoomUsersEffect] Unsubscribing from room users for room: ${roomId}`);
         unsubscribe();
     };
-  }, [roomId, myUserId, isAuthReady]);
+  }, [roomId, myUserId, isAuthReady]); // Re-added 'db' as a dependency, just in case
 
   // Function to handle joining a room
   const handleJoinRoom = async () => {
@@ -303,30 +305,47 @@ function App() {
         console.log(`[JoinRoom] Room ${roomId} created.`);
       }
 
-      // Step 2: Get current users *before* adding self, to check capacity.
-      // This is crucial to get an accurate count *before* your own presence is guaranteed to be in the snapshot.
-      const usersSnapshot = await getDocs(usersCollectionRef);
-      const existingUserIdsInRoom = usersSnapshot.docs.map(doc => doc.id);
+      // Step 2: Clean up stale presence documents.
+      // This runs BEFORE checking capacity and BEFORE setting current user's presence.
+      const now = Date.now();
+      const STALE_THRESHOLD_MS = 15 * 1000; // 15 seconds for a user to be considered stale
       
-      console.log(`[JoinRoom] Pre-join check: Found ${existingUserIdsInRoom.length} current user documents in room '${roomId}'.`);
-      console.log(`[JoinRoom] Pre-join check: All user IDs found: ${existingUserIdsInRoom.join(', ')}`);
+      let initialUsersSnapshot = await getDocs(usersCollectionRef);
+      console.log(`[JoinRoom] Initial user check (before cleanup): Found ${initialUsersSnapshot.docs.length} documents.`);
+      
+      for (const userDoc of initialUsersSnapshot.docs) {
+          const userData = userDoc.data();
+          // Convert Firestore Timestamp to JS Date, then to milliseconds
+          const lastSeenMs = userData.lastSeen ? userData.lastSeen.toDate().getTime() : 0;
+          
+          // Check if user is NOT the current user AND their lastSeen is older than threshold
+          if (userDoc.id !== myUserId && (now - lastSeenMs > STALE_THRESHOLD_MS || !userData.lastSeen)) {
+              console.warn(`[JoinRoom] Deleting stale user: ${userDoc.id} (Last Seen: ${lastSeenMs ? new Date(lastSeenMs).toLocaleString() : 'N/A'})`);
+              await deleteDoc(userDoc.ref).catch(e => console.error(`Failed to delete stale user ${userDoc.id}:`, e));
+          }
+      }
 
-      // Step 3: Enforce the 2-user limit.
-      // If there are already 2 or more users (including potentially stale ones that haven't been cleaned up yet),
-      // or if your own new presence will make it 3, then block.
-      // The `onSnapshot` for roomUsers will keep the UI updated.
-      if (existingUserIdsInRoom.length >= 2) {
+      // Step 3: Re-fetch user list after potential cleanup for accurate capacity check.
+      const usersSnapshotAfterCleanup = await getDocs(usersCollectionRef);
+      const existingUserIdsAfterCleanup = usersSnapshotAfterCleanup.docs.map(doc => doc.id);
+      
+      console.log(`[JoinRoom] Post-cleanup check: Found ${existingUserIdsAfterCleanup.length} user documents in room '${roomId}'.`);
+      console.log(`[JoinRoom] Post-cleanup check: All user IDs found: ${existingUserIdsAfterCleanup.join(', ')}`);
+
+      // Step 4: Enforce the 2-user limit.
+      // The `existingUserIdsAfterCleanup.length` now represents the number of *active* users.
+      // If it's already 2, then the room is full.
+      if (existingUserIdsAfterCleanup.length >= 2) {
         showCustomModal("This room is full. Only two users allowed. Please try another room code.");
-        console.warn(`[JoinRoom] Room ${roomId} is full. Blocking join. Current users found: ${existingUserIdsInRoom.length}`);
+        console.warn(`[JoinRoom] Room ${roomId} is full. Blocking join. Current active users found: ${existingUserIdsAfterCleanup.length}`);
         return; // IMPORTANT: Do not proceed if room is full
       }
 
-      // Step 4: If capacity is available, set current user's presence to 'online'.
-      // This is now performed *after* the capacity check.
+      // Step 5: If capacity is available, set current user's presence to 'online'.
       await updatePresence(roomId, myUserId, userName, 'online');
-      console.log(`[JoinRoom] User ${myUserId} presence set to online after capacity check.`);
+      console.log(`[JoinRoom] User ${myUserId} presence set to online after capacity and cleanup checks.`);
 
-      // Step 5: Add 'Joined' system message here.
+      // Step 6: Add 'Joined' system message here.
       await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/messages`), {
         senderId: 'system',
         senderName: 'System',
@@ -334,7 +353,7 @@ function App() {
         timestamp: serverTimestamp(),
       });
 
-      // Step 6: Transition to the chat view.
+      // Step 7: Transition to the chat view.
       setCurrentView('chat');
       console.log(`[JoinRoom] Successfully joined room ${roomId}.`);
 
