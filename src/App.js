@@ -57,8 +57,8 @@ function App() {
   const [currentView, setCurrentView] = useState('login'); // Controls which UI screen is visible
   const [messages, setMessages] = useState([]); // Stores chat messages
   const [newMessage, setNewMessage] = useState(''); // Input for new chat messages
-  const [roomUsers, setRoomUsers] = useState({}); // Tracks users currently in the room
-  const [myUserId, setMyUserId] = useState(null); // Current user's Firebase UID
+  const [roomUsers, setRoomUsers] = useState({}); // Tracks users currently in the room (keyed by userName)
+  const [myUserId, setMyUserId] = useState(null); // Current user's Firebase UID (authenticated identity)
   const [isAuthReady, setIsAuthReady] = useState(false); // Indicates if Firebase auth is initialized
   const [showModal, setShowModal] = useState(false); // Controls visibility of custom alert modal
   const [modalMessage, setModalMessage] = useState(''); // Message content for custom alert modal
@@ -112,60 +112,63 @@ function App() {
   }, [setShowModal, setModalMessage]); // Dependencies are the state setters, which are stable
 
 
-  // Function to update user's online/offline presence in Firestore
-  // This function now primarily handles setting the presence state.
-  // The 'online' status uses setDoc (upsert). 'offline' uses deleteDoc.
-  const updatePresence = useCallback(async (currentRoomId, userId, userName, status) => {
-    if (!db || !userId) {
-        console.warn(`[Presence] Skipping updatePresence for user ${userId} status ${status}: DB or UserID not ready.`);
+  /**
+   * Function to update user's online/offline presence in Firestore.
+   * IMPORTANT: Presence documents are now keyed by `userName`, not `myUserId` (Firebase UID).
+   * Each presence document stores `userName`, `myUserId`, and `lastSeen`.
+   */
+  const updatePresence = useCallback(async (currentRoomId, currentUserName, currentMyUserId, status) => {
+    if (!db || !currentUserName || !currentMyUserId) { // Ensure both userName and myUserId are valid
+        console.warn(`[Presence] Skipping updatePresence for user ${currentUserName} (${currentMyUserId}) status ${status}: DB, UserName, or UserID not ready.`);
         return;
     }
 
+    // Use userName as the document ID for presence
     const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, currentRoomId);
-    const userStatusRef = doc(roomDocRef, 'users', userId);
+    const userStatusRef = doc(roomDocRef, 'users', currentUserName); // Keyed by userName
 
     try {
       if (status === 'online') {
-        await setDoc(userStatusRef, { userName: userName, lastSeen: serverTimestamp() });
-        console.log(`[Presence] User ${userId} set to online.`);
+        await setDoc(userStatusRef, { 
+            userName: currentUserName, // Store userName as a field too
+            firebaseUid: currentMyUserId, // Store the Firebase UID
+            lastSeen: serverTimestamp() 
+        });
+        console.log(`[Presence] User ${currentUserName} (${currentMyUserId}) set to online.`);
       } else if (status === 'offline') {
+        // When going offline, delete the presence document keyed by userName
         await deleteDoc(userStatusRef);
-        console.log(`[Presence] User ${userId} set to offline (deleted).`);
+        console.log(`[Presence] User ${currentUserName} (${currentMyUserId}) set to offline (deleted).`);
       }
     } catch (error) {
-      console.error(`Error updating presence for ${userId} to ${status}:`, error);
+      console.error(`Error updating presence for ${currentUserName} (${currentMyUserId}) to ${status}:`, error);
     }
   }, []);
 
   // Effect to periodically update presence while in a room
   useEffect(() => {
       // Only set up interval if in chat view, and necessary Firebase/user details are available
-      if (currentView === 'chat' && myUserId && roomId && userName && db && isAuthReady) {
-          console.log(`[PresenceInterval] Setting up periodic presence update for ${myUserId} in room ${roomId}`);
-          // Clear any existing interval first to prevent duplicates
+      if (currentView === 'chat' && myUserId && roomId && userName && isAuthReady) {
+          console.log(`[PresenceInterval] Setting up periodic presence update for ${userName} (${myUserId}) in room ${roomId}`);
           if (presenceIntervalRef.current) {
               clearInterval(presenceIntervalRef.current);
           }
 
-          // Update presence every 15 seconds
           presenceIntervalRef.current = setInterval(() => {
-              // Ensure we use the latest state values for roomId, myUserId, userName
-              // This is a common pattern for setIntervals inside useEffect closures
-              if (db && roomId && myUserId && userName) { // Re-check validity inside interval
-                  updatePresence(roomId, myUserId, userName, 'online');
+              // Use the latest state values for roomId, myUserId, userName in the interval callback
+              if (db && roomId && myUserId && userName) { 
+                  updatePresence(roomId, userName, myUserId, 'online');
               }
           }, 15 * 1000); // Update every 15 seconds
 
-          // Cleanup function for when component unmounts or dependencies change
           return () => {
               if (presenceIntervalRef.current) {
-                  console.log(`[PresenceInterval] Clearing periodic presence update for ${myUserId}`);
+                  console.log(`[PresenceInterval] Clearing periodic presence update for ${userName} (${myUserId})`);
                   clearInterval(presenceIntervalRef.current);
                   presenceIntervalRef.current = null;
               }
           };
       } else {
-          // If not in chat view or dependencies not ready, ensure interval is cleared
           if (presenceIntervalRef.current) {
               console.log("[PresenceInterval] Clearing interval due to view change or dependencies not ready.");
               clearInterval(presenceIntervalRef.current);
@@ -198,7 +201,9 @@ function App() {
     if (db && roomId && myUserId) {
       try {
         const callDocRef = doc(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState`, 'currentCall');
-        const otherUserId = Object.keys(roomUsers).find(id => id !== myUserId);
+        // Find the other user's Firebase UID for cleanup
+        const otherUserPresence = Object.values(roomUsers).find(user => user.firebaseUid !== myUserId);
+        const otherUserId = otherUserPresence ? otherUserPresence.firebaseUid : null;
 
         const myCandidatesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState/${myUserId}/candidates`);
         const myCandidatesSnapshot = await getDocs(myCandidatesCollectionRef);
@@ -252,15 +257,15 @@ function App() {
 
     // Handle leaving the room on page reload or navigation away
     const handleBeforeUnload = async () => {
+      // Use the userName for deletion, as presence is now keyed by userName
       if (myUserId && roomId && userName && db) {
-        const userDocPath = `artifacts/${appId}/public/data/rooms/${roomId}/users/${myUserId}`; // Get user presence doc reference
+        const userDocPath = `artifacts/${appId}/public/data/rooms/${roomId}/users/${userName}`; 
         const messagesCollectionPath = `artifacts/${appId}/public/data/rooms/${roomId}/messages`;
 
-        // Attempt to delete user presence on unload and send "Left" message
         Promise.allSettled([
           fetch(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/${userDocPath}`, {
             method: 'DELETE',
-            keepalive: true, // Crucial for requests during page unload
+            keepalive: true,
             headers: { 'Content-Type': 'application/json' },
           }).catch(e => console.warn("Failed to delete presence on unload (fetch):", e)),
           fetch(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/${messagesCollectionPath}:add`, {
@@ -269,10 +274,10 @@ function App() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               fields: {
-                senderId: { stringValue: 'system' },
+                senderId: { stringValue: 'system' }, // System message still uses 'system' ID
                 senderName: { stringValue: 'System' },
-                text: { stringValue: `${userName} Left (reloaded)` }, // Added (reloaded) for clarity
-                timestamp: { timestampValue: new Date().toISOString() } // Use ISO string for Firestore Timestamp
+                text: { stringValue: `${userName} Left (reloaded)` },
+                timestamp: { timestampValue: new Date().toISOString() }
               }
             })
           }).catch(e => console.warn("Failed to add 'Left' message on unload (fetch):", e))
@@ -281,7 +286,7 @@ function App() {
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
-    window.addEventListener('unload', handleBeforeUnload); // For older browsers/more reliability
+    window.addEventListener('unload', handleBeforeUnload); 
 
     return () => {
       unsubscribeAuth();
@@ -292,23 +297,26 @@ function App() {
 
   // Effect to listen for real-time updates on room users (presence)
   useEffect(() => {
-    if (!db || !roomId || !myUserId || !isAuthReady) {
-        console.log("[RoomUsersEffect] Skipping onSnapshot setup: DB, RoomID, UserID, or Auth not ready.");
+    // We now depend on userName being set for the correct path
+    if (!roomId || !userName || !isAuthReady || !db) { 
+        console.log("[RoomUsersEffect] Skipping onSnapshot setup: RoomID, UserName, Auth, or DB not ready.");
         return;
     }
 
+    // Listen to the collection keyed by userName
     const roomUsersRef = collection(db, `artifacts/${appId}/public/data/rooms`, roomId, 'users');
     const q = query(roomUsersRef);
 
-    console.log(`[RoomUsersEffect] Setting up onSnapshot for room: ${roomId} with query:`, q);
+    console.log(`[RoomUsersEffect] Setting up onSnapshot for room: ${roomId} with query (users keyed by userName):`, q);
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const usersData = {};
       snapshot.forEach((doc) => {
-        usersData[doc.id] = doc.data(); // Populate usersData with user IDs and their data
+        // doc.id will now be the userName
+        usersData[doc.id] = doc.data(); 
       });
       console.log(`[RoomUsersEffect] onSnapshot received ${snapshot.docs.length} user documents.`);
-      console.log("[RoomUsersEffect] Parsed usersData (from snapshot):", usersData);
-      setRoomUsers(usersData); // This should now correctly capture all present users
+      console.log("[RoomUsersEffect] Parsed usersData (from snapshot, keyed by userName):", usersData);
+      setRoomUsers(usersData); 
     }, (error) => {
       console.error("[RoomUsersEffect] Error fetching room users:", error);
     });
@@ -317,7 +325,7 @@ function App() {
         console.log(`[RoomUsersEffect] Unsubscribing from room users for room: ${roomId}`);
         unsubscribe();
     };
-  }, [roomId, myUserId, isAuthReady]); // Re-added 'db' as a dependency, just in case
+  }, [roomId, userName, isAuthReady]); // myUserId is not directly needed for the path now, but userName is
 
   // Function to handle joining a room
   const handleJoinRoom = async () => {
@@ -344,57 +352,85 @@ function App() {
         console.log(`[JoinRoom] Room ${roomId} created.`);
       }
 
-      // Step 2: Clean up stale presence documents BEFORE checking capacity.
-      // This is crucial for reliable capacity checks and re-joins.
+      // Step 2: Aggressively clean up stale presence documents BEFORE checking capacity.
       const now = Date.now();
-      // Set STALE_THRESHOLD_MS slightly larger than the periodic update interval
-      const STALE_THRESHOLD_MS = 20 * 1000; // 20 seconds. Periodic update is 15s.
+      const STALE_THRESHOLD_MS = 10 * 1000; // 10 seconds.
       
       let usersSnapshotPreCleanup = await getDocs(usersCollectionRef);
       console.log(`[JoinRoom] Initial user check (before stale cleanup): Found ${usersSnapshotPreCleanup.docs.length} documents.`);
       
-      // Filter users to delete: not current user, and (lastSeen is too old OR lastSeen is missing)
       const usersToDeletePromises = [];
+      let isTargetUsernameTaken = false; // Flag to check if the exact username is taken by an *active* user
+      
       for (const userDoc of usersSnapshotPreCleanup.docs) {
           const userData = userDoc.data();
+          const docUserName = userDoc.id; // User document ID is now the userName
           const lastSeenMs = userData.lastSeen ? userData.lastSeen.toDate().getTime() : 0;
           
-          if (userDoc.id !== myUserId && (now - lastSeenMs > STALE_THRESHOLD_MS || !userData.lastSeen)) {
-              console.warn(`[JoinRoom] Deleting stale user: ${userDoc.id} (Last Seen: ${lastSeenMs ? new Date(lastSeenMs).toLocaleString() : 'N/A'}). Age: ${((now - lastSeenMs)/1000).toFixed(1)}s`);
-              usersToDeletePromises.push(deleteDoc(userDoc.ref).catch(e => console.error(`Failed to delete stale user ${userDoc.id}:`, e)));
+          const isStale = (now - lastSeenMs > STALE_THRESHOLD_MS || !userData.lastSeen);
+          
+          if (docUserName === userName.trim()) { // If the current user's requested username is already in the room
+              if (isStale) {
+                  // If our username is found but is stale, delete it to clear the spot
+                  console.warn(`[JoinRoom] Deleting stale presence for current userName: ${docUserName} (Last Seen: ${new Date(lastSeenMs).toLocaleString()}). Age: ${((now - lastSeenMs)/1000).toFixed(1)}s`);
+                  usersToDeletePromises.push(deleteDoc(userDoc.ref).catch(e => console.error(`Failed to delete stale presence for current userName ${docUserName}:`, e)));
+              } else {
+                  // If our username is found and NOT stale, it means another active user is using it.
+                  // This is only an issue if the Firebase UID doesn't match (i.e., different person using same name).
+                  // If Firebase UID matches, it's just the same user rejoining, which is allowed.
+                  if (userData.firebaseUid !== myUserId) {
+                      console.warn(`[JoinRoom] Username '${docUserName}' is already taken by active user with different Firebase UID: ${userData.firebaseUid}. Blocking join.`);
+                      isTargetUsernameTaken = true; // Mark that the exact username is taken by another active user
+                  } else {
+                      console.log(`[JoinRoom] Rejoining as existing user ${docUserName} (${myUserId}).`);
+                  }
+              }
+          } else if (isStale) {
+              // Delete stale users who are not the current user trying to join
+              console.warn(`[JoinRoom] Deleting stale user: ${docUserName} (Last Seen: ${lastSeenMs ? new Date(lastSeenMs).toLocaleString() : 'N/A'}). Age: ${((now - lastSeenMs)/1000).toFixed(1)}s`);
+              usersToDeletePromises.push(deleteDoc(userDoc.ref).catch(e => console.error(`Failed to delete stale user ${docUserName}:`, e)));
           } else {
-              console.log(`[JoinRoom] User ${userDoc.id} is NOT stale (Last Seen: ${lastSeenMs ? new Date(lastSeenMs).toLocaleString() : 'N/A'}) or is current user.`);
+              console.log(`[JoinRoom] User ${docUserName} is NOT stale or is current user (different username).`);
           }
       }
-      await Promise.allSettled(usersToDeletePromises); // Wait for all deletions to attempt
+      // Wait for all deletions to complete before proceeding. This is critical for accurate capacity.
+      await Promise.allSettled(usersToDeletePromises); 
+      console.log(`[JoinRoom] Completed stale user cleanup.`);
 
-      // Step 3: Re-fetch user list AFTER potential cleanup for accurate capacity check.
-      // Give Firestore a tiny moment to reflect deletions before re-fetching
-      await new Promise(resolve => setTimeout(resolve, 300)); // Small delay for consistency
+      // If the target username is already taken by another active user, block.
+      if (isTargetUsernameTaken) {
+        showCustomModal(`The username '${userName.trim()}' is already taken by an active user in this room. Please choose a different name.`);
+        return;
+      }
+
+      // Step 3: Re-fetch user list AFTER cleanup for accurate capacity check.
+      // Add a small delay to ensure Firestore has processed deletes before the next read
+      await new Promise(resolve => setTimeout(resolve, 300)); // 300ms delay
       const usersSnapshotAfterCleanup = await getDocs(usersCollectionRef);
-      const existingUserIdsAfterCleanup = usersSnapshotAfterCleanup.docs.map(doc => doc.id);
+      const existingUsernamesAfterCleanup = usersSnapshotAfterCleanup.docs.map(doc => doc.id);
       
-      console.log(`[JoinRoom] Post-cleanup check: Found ${existingUserIdsAfterCleanup.length} user documents in room '${roomId}'.`);
-      console.log(`[JoinRoom] Post-cleanup check: All user IDs found: ${existingUserIdsAfterCleanup.join(', ')}`);
+      console.log(`[JoinRoom] Post-cleanup check: Found ${existingUsernamesAfterCleanup.length} user documents (unique usernames) in room '${roomId}'.`);
+      console.log(`[JoinRoom] Post-cleanup check: All usernames found: ${existingUsernamesAfterCleanup.join(', ')}`);
 
-      // Step 4: Enforce the 2-user limit.
-      // If there are already 2 or more active users (after cleanup), block entry.
-      if (existingUserIdsAfterCleanup.length >= 2) {
-        showCustomModal("This room is full. Only two users allowed. Please try another room code.");
-        console.warn(`[JoinRoom] Room ${roomId} is full. Blocking join. Current active users found: ${existingUserIdsAfterCleanup.length}`);
+      // Step 4: Enforce the 2-user limit based on unique usernames.
+      // If there are already 2 active users (usernames), block entry.
+      // Note: If the current user is rejoining (same username), their count will be 1 before their update.
+      if (existingUsernamesAfterCleanup.length >= 2) {
+        showCustomModal("This room is full. Only two unique usernames allowed. Please try another room code or wait for a spot to open.");
+        console.warn(`[JoinRoom] Room ${roomId} is full. Blocking join. Current active usernames found: ${existingUsernamesAfterCleanup.length}`);
         return; // IMPORTANT: Do not proceed if room is full
       }
 
       // Step 5: If capacity is available, set current user's presence to 'online'.
-      // This is now performed *after* the capacity check.
-      await updatePresence(roomId, myUserId, userName, 'online');
-      console.log(`[JoinRoom] User ${myUserId} presence set to online after capacity and cleanup checks.`);
+      // This will either create a new presence or update an existing one keyed by userName.
+      await updatePresence(roomId, userName.trim(), myUserId, 'online');
+      console.log(`[JoinRoom] User ${userName} (${myUserId}) presence set to online after capacity and cleanup checks.`);
 
       // Step 6: Add 'Joined' system message here.
       await addDoc(collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/messages`), {
-        senderId: 'system',
-        senderName: 'System',
-        text: `${userName} Joined`,
+        senderId: myUserId, // Use Firebase UID for chat message sender ID
+        senderName: userName.trim(), // Use the user-provided name for display
+        text: `${userName.trim()} Joined`,
         timestamp: serverTimestamp(),
       });
 
@@ -414,8 +450,9 @@ function App() {
       await hangupCall();
     }
 
-    if (myUserId && roomId) {
-      await updatePresence(roomId, myUserId, userName, 'offline');
+    // Delete presence using userName as the key
+    if (myUserId && roomId && userName) {
+      await updatePresence(roomId, userName, myUserId, 'offline');
     }
     setRoomId('');
     setUserName('');
@@ -456,8 +493,8 @@ function App() {
     try {
       const messagesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/messages`);
       await addDoc(messagesCollectionRef, {
-        senderId: myUserId,
-        senderName: userName,
+        senderId: myUserId, // Use Firebase UID as sender ID
+        senderName: userName, // Use the user-provided name as sender name
         text: newMessage,
         timestamp: serverTimestamp(),
       });
@@ -518,6 +555,7 @@ function App() {
 
     peerConnection.onicecandidate = async (event) => {
       if (event.candidate) {
+        // Use myUserId for candidate signaling
         const candidatesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState/${myUserId}/candidates`);
         await addDoc(candidatesCollectionRef, event.candidate.toJSON());
       }
@@ -543,8 +581,11 @@ function App() {
 
   // Function to initiate a video call (Caller's side)
   const startCall = async () => {
-    const otherUserIds = Object.keys(roomUsers).filter(id => id !== myUserId);
-    if (otherUserIds.length === 0) {
+    // Find the other user's Firebase UID from roomUsers (which is now keyed by userName)
+    const otherUserPresence = Object.values(roomUsers).find(user => user.firebaseUid !== myUserId);
+    const otherUserId = otherUserPresence ? otherUserPresence.firebaseUid : null;
+
+    if (!otherUserId) {
       showCustomModal("No other user in the room to call.");
       return;
     }
@@ -554,7 +595,7 @@ function App() {
     }
 
     setIsCalling(true);
-    setCallInitiatorId(myUserId);
+    setCallInitiatorId(myUserId); // Call initiator is still identified by Firebase UID
 
     try {
       localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -573,20 +614,20 @@ function App() {
           sdp: offer.sdp,
           type: offer.type,
         },
-        callerId: myUserId,
+        callerId: myUserId, // Store caller's Firebase UID
         timestamp: serverTimestamp(),
         status: 'pending',
       });
 
       const unsubscribeAnswer = onSnapshot(callDocRef, async (snapshot) => {
         const data = snapshot.data();
-        if (data?.answer && !peerConnection.currentRemoteDescription && data.answererId === otherUserIds[0]) {
+        if (data?.answer && !peerConnection.currentRemoteDescription && data.answererId === otherUserId) {
           const answerDescription = new RTCSessionDescription(data.answer);
           await peerConnection.setRemoteDescription(answerDescription);
-          listenForRemoteIceCandidates(otherUserIds[0], peerConnection);
+          listenForRemoteIceCandidates(otherUserId, peerConnection);
           unsubscribeAnswer();
           setCurrentView('videoCall');
-        } else if (data?.status === 'rejected' && data.answererId === otherUserIds[0]) {
+        } else if (data?.status === 'rejected' && data.answererId === otherUserId) {
             showCustomModal("Call rejected by the other user.");
             hangupCall();
         }
@@ -607,7 +648,7 @@ function App() {
   // Function to accept an incoming video call (Answerer's side)
   const acceptCall = async (offerData, callerId) => {
     setIsCalling(true);
-    setCallInitiatorId(callerId);
+    setCallInitiatorId(callerId); // Store caller's Firebase UID
 
     try {
       localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -629,7 +670,7 @@ function App() {
           sdp: answer.sdp,
           type: answer.type,
         },
-        answererId: myUserId,
+        answererId: myUserId, // Store answerer's Firebase UID
         status: 'active',
       });
 
