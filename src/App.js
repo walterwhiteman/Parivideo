@@ -278,7 +278,7 @@ function App() {
         console.log(`[RoomUsersEffect] Unsubscribing from room users for room: ${roomId}`);
         unsubscribe();
     };
-  }, [roomId, myUserId, isAuthReady]); // Re-added 'db' as a dependency, just in case
+  }, [db, roomId, myUserId, isAuthReady]); // Re-added 'db' as a dependency, just in case
 
   // Function to handle joining a room
   const handleJoinRoom = async () => {
@@ -305,27 +305,26 @@ function App() {
         console.log(`[JoinRoom] Room ${roomId} created.`);
       }
 
-      // Step 2: Clean up stale presence documents.
-      // This runs BEFORE checking capacity and BEFORE setting current user's presence.
+      // Step 2: Clean up stale presence documents BEFORE checking capacity.
+      // This is crucial for reliable capacity checks and re-joins.
       const now = Date.now();
-      const STALE_THRESHOLD_MS = 15 * 1000; // 15 seconds for a user to be considered stale
+      const STALE_THRESHOLD_MS = 25 * 1000; // Increased to 25 seconds for robustness against network latency/fast reloads
       
-      let initialUsersSnapshot = await getDocs(usersCollectionRef);
-      console.log(`[JoinRoom] Initial user check (before cleanup): Found ${initialUsersSnapshot.docs.length} documents.`);
+      let usersSnapshotPreCleanup = await getDocs(usersCollectionRef);
+      console.log(`[JoinRoom] Initial user check (before stale cleanup): Found ${usersSnapshotPreCleanup.docs.length} documents.`);
       
-      for (const userDoc of initialUsersSnapshot.docs) {
+      // Perform cleanup of truly stale users who are not the current user
+      for (const userDoc of usersSnapshotPreCleanup.docs) {
           const userData = userDoc.data();
-          // Convert Firestore Timestamp to JS Date, then to milliseconds
           const lastSeenMs = userData.lastSeen ? userData.lastSeen.toDate().getTime() : 0;
           
-          // Check if user is NOT the current user AND their lastSeen is older than threshold
           if (userDoc.id !== myUserId && (now - lastSeenMs > STALE_THRESHOLD_MS || !userData.lastSeen)) {
               console.warn(`[JoinRoom] Deleting stale user: ${userDoc.id} (Last Seen: ${lastSeenMs ? new Date(lastSeenMs).toLocaleString() : 'N/A'})`);
               await deleteDoc(userDoc.ref).catch(e => console.error(`Failed to delete stale user ${userDoc.id}:`, e));
           }
       }
 
-      // Step 3: Re-fetch user list after potential cleanup for accurate capacity check.
+      // Step 3: Re-fetch user list AFTER potential cleanup for accurate capacity check.
       const usersSnapshotAfterCleanup = await getDocs(usersCollectionRef);
       const existingUserIdsAfterCleanup = usersSnapshotAfterCleanup.docs.map(doc => doc.id);
       
@@ -333,8 +332,7 @@ function App() {
       console.log(`[JoinRoom] Post-cleanup check: All user IDs found: ${existingUserIdsAfterCleanup.join(', ')}`);
 
       // Step 4: Enforce the 2-user limit.
-      // The `existingUserIdsAfterCleanup.length` now represents the number of *active* users.
-      // If it's already 2, then the room is full.
+      // If there are already 2 or more active users (after cleanup), block entry.
       if (existingUserIdsAfterCleanup.length >= 2) {
         showCustomModal("This room is full. Only two users allowed. Please try another room code.");
         console.warn(`[JoinRoom] Room ${roomId} is full. Blocking join. Current active users found: ${existingUserIdsAfterCleanup.length}`);
@@ -342,6 +340,7 @@ function App() {
       }
 
       // Step 5: If capacity is available, set current user's presence to 'online'.
+      // This is now performed *after* the capacity check.
       await updatePresence(roomId, myUserId, userName, 'online');
       console.log(`[JoinRoom] User ${myUserId} presence set to online after capacity and cleanup checks.`);
 
@@ -375,7 +374,7 @@ function App() {
     setRoomId('');
     setUserName('');
     setMessages([]);
-    setRoomUsers({});
+    setRoomUsers({}); // Clear roomUsers state when leaving
     setCurrentView('login');
     setIsCalling(false);
     setIsCallActive(false);
