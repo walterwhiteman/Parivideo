@@ -115,7 +115,7 @@ function App() {
     } catch (error) {
       console.error(`Error updating presence for ${currentUserName} (${currentMyUserId}) to ${status}:`, error);
     }
-  }, [db, appId]); // Added dependencies
+  }, []); // Removed db, appId - they are global and not React state/props
 
   useEffect(() => {
     if (currentView === 'chat' && myUserId && roomId && userName && isAuthReady) {
@@ -132,7 +132,7 @@ function App() {
 
       return () => {
         if (presenceIntervalRef.current) {
-          console.log(`[PresenceInterval] Clearing periodic presence update for ${userName} (${myUserId})`);
+          console.log("[PresenceInterval] Clearing periodic presence update for " + userName + " (" + myUserId + ")");
           clearInterval(presenceIntervalRef.current);
           presenceIntervalRef.current = null;
         }
@@ -144,7 +144,7 @@ function App() {
         presenceIntervalRef.current = null;
       }
     }
-  }, [currentView, myUserId, roomId, userName, isAuthReady, updatePresence, db]); // Added db to dependencies
+  }, [currentView, myUserId, roomId, userName, isAuthReady, updatePresence]); // Removed db - it's global
 
   const hangupCall = useCallback(async () => {
     if (peerConnection) {
@@ -196,7 +196,7 @@ function App() {
     setIsLocalVideoMuted(false);
     setIsLocalAudioMuted(false);
     setCurrentView('chat');
-  }, [roomId, myUserId, roomUsers, setIsCalling, setIsCallActive, setCallInitiatorId, setIsLocalVideoMuted, setIsLocalAudioMuted, setCurrentView, db, appId]); // Added dependencies
+  }, [roomId, myUserId, roomUsers, setIsCalling, setIsCallActive, setCallInitiatorId, setIsLocalVideoMuted, setIsLocalAudioMuted, setCurrentView]); // Removed db, appId - they are global and not React state/props
 
   useEffect(() => {
     if (!auth) {
@@ -223,7 +223,7 @@ function App() {
     return () => {
       unsubscribeAuth();
     };
-  }, [showCustomModal, auth]); // Removed roomId, userName, as they are not needed for auth state change listener
+  }, [showCustomModal]); // Removed auth - it's global and not React state/props
 
   useEffect(() => {
     if (!roomId || !userName || !isAuthReady || !db) { 
@@ -254,7 +254,7 @@ function App() {
         console.log(`[RoomUsersEffect] Unsubscribing from room users for room: ${roomId}`);
         unsubscribe();
     };
-  }, [roomId, userName, isAuthReady, db, appId, roomUsers]); // Added db, appId to dependencies
+  }, [roomId, userName, isAuthReady, roomUsers]); // Removed db, appId - they are global
 
   const handleJoinRoom = async () => {
     if (!roomId.trim() || !userName.trim()) {
@@ -427,7 +427,7 @@ function App() {
     });
 
     return () => unsubscribe();
-  }, [roomId, currentView, myUserId, db, appId]); // Added db and appId to dependencies
+  }, [roomId, currentView, myUserId]); // Removed db, appId - they are global
 
   const servers = {
     iceServers: [
@@ -618,7 +618,7 @@ function App() {
     });
 
     return () => unsubscribeCandidates();
-  }, [roomId, db, appId]); // Added db, appId to dependencies
+  }, [roomId]); // Removed db, appId - they are global
 
   const toggleLocalVideo = () => {
     if (localStream) {
@@ -671,7 +671,7 @@ function App() {
     });
 
     return () => unsubscribeCall();
-  }, [db, roomId, myUserId, isCalling, isCallActive, currentView, showCustomModal, hangupCall, appId]); // Added appId to dependencies
+  }, [roomId, myUserId, isCalling, isCallActive, currentView, showCustomModal, hangupCall]); // Removed db, appId - they are global
 
   if (!isAuthReady) {
     return (
@@ -707,8 +707,8 @@ function App() {
       {currentView === 'login' && (
         <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md border border-gray-200">
           <div className="flex flex-col items-center mb-8">
-            <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-user-round text-blue-600 mb-4">
-              <circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>
+            <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-user-circle">
+              <circle cx="12" cy="12" r="10"/><circle cx="12" cy="10" r="3"/><path d="M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662"/>
             </svg>
             <h1 className="text-4xl font-extrabold text-blue-600 mb-2">Parivideo</h1>
             <p className="text-lg text-gray-900 font-medium">Private Chat & Video Call</p>
@@ -731,7 +731,7 @@ function App() {
               id="userName"
               className="w-full px-5 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400"
               value={userName}
-              onChange={(e) => setUserName(e.target.value)}
+              onChange={(e) => setNewMessage(e.target.value)}
               placeholder="User Name"
             />
           </div>
