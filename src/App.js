@@ -55,13 +55,13 @@ function App() {
   const [showModal, setShowModal] = useState(false);
   const [modalMessage, setModalMessage] = useState('');
   const [callInitiatorId, setCallInitiatorId] = useState(null);
-  const [isCalling, setIsCalling] = useState(false);
-  const [isCallActive, setIsCallActive] = useState(false);
-  const [isLocalVideoMuted, setIsLocalVideoMuted] = useState(false);
-  const [isLocalAudioMuted, setIsLocalAudioMuted] = useState(false);
-  const [callTimer, setCallTimer] = useState(0);
-  const callTimerRef = useRef(null);
-  const presenceIntervalRef = useRef(null);
+  const [isCalling, setIsCalling] = useState(false); // True when a call is being dialed or received
+  const [isCallActive, setIsCallActive] = useState(false); // True when WebRTC connection is established and streams are active
+  const [isLocalVideoMuted, setIsLocalVideoMuted] = useState(false); // State for local video mute button
+  const [isLocalAudioMuted, setIsLocalAudioMuted] = useState(false); // State for local audio mute button
+  const [callTimer, setCallTimer] = useState(0); // Timer for active video call duration
+  const callTimerRef = useRef(null); // Ref to store interval ID for call timer
+  const presenceIntervalRef = useRef(null); // Ref to store interval ID for presence updates
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -69,7 +69,9 @@ function App() {
 
   // eslint-disable-next-line
   useEffect(() => {
-    if (callInitiatorId) {}
+    if (callInitiatorId) {
+      // console.log('Call initiated by:', callInitiatorId); // Keeping this commented out as it's not strictly necessary for functionality
+    }
   }, [callInitiatorId]);
 
   useEffect(() => {
@@ -101,6 +103,7 @@ function App() {
 
     try {
       if (status === 'online') {
+        // Set presence and also set up onDisconnect to remove it on client disconnect
         await setDoc(userStatusRef, { 
             userName: currentUserName, 
             firebaseUid: currentMyUserId, 
@@ -108,6 +111,7 @@ function App() {
         });
         console.log(`[Presence] User ${currentUserName} (${currentMyUserId}) set to online.`);
       } else if (status === 'offline') {
+        // When going offline gracefully, delete the presence document keyed by userName
         await deleteDoc(userStatusRef);
         console.log(`[Presence] User ${currentUserName} (${currentMyUserId}) set to offline (deleted).`);
       }
@@ -117,6 +121,7 @@ function App() {
   }, []);
 
   useEffect(() => {
+      // Only set up interval if in chat view, and necessary Firebase/user details are available
       if (currentView === 'chat' && myUserId && roomId && userName && isAuthReady) {
           console.log(`[PresenceInterval] Setting up periodic presence update for ${userName} (${myUserId}) in room ${roomId}`);
           if (presenceIntervalRef.current) {
@@ -653,9 +658,9 @@ function App() {
   }
 
   const outerContainerClasses =
-    currentView === 'login' || currentView === 'incomingCall'
-      ? 'flex flex-col items-center justify-center min-h-[100dvh] bg-white font-sans antialiased'
-      : 'flex flex-col min-h-[100dvh] bg-white font-sans antialiased';
+    currentView === 'login' || currentView === 'incomingCall' || currentView === 'videoCall'
+      ? 'flex flex-col items-center justify-center min-h-[100dvh] bg-gray-50 font-sans antialiased' // Adjusted for videoCall to also center and have bg
+      : 'flex flex-col min-h-[100dvh] bg-gray-50 font-sans antialiased'; 
 
   return (
     <div className={outerContainerClasses}>
@@ -721,219 +726,148 @@ function App() {
         </div>
       )}
 
-      {/* Incoming Call View (3.png) - Conditionally rendered */}
+      {/* Incoming Call Modal (Based on provided index.html) */}
       {currentView === 'incomingCall' && (
-        <div className="fixed inset-0 bg-blue-600 flex flex-col items-center justify-between p-8 text-white z-40">
-          <div className="text-center mt-16">
-            <p className="text-2xl font-semibold mb-4">Incoming</p>
-            <h1 className="text-5xl font-extrabold">Video Call</h1>
-          </div>
-          <div className="flex justify-center space-x-12 mb-20">
-            <button
-              onClick={rejectCall}
-              className="flex flex-col items-center p-4 bg-red-500 rounded-full shadow-lg hover:bg-red-600 focus:outline-none focus:ring-4 focus:ring-red-400 transition duration-200"
-              title="Reject Call"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-phone-off">
-                <path d="M10.69 6.11 18.6 2.4a1 1 0 0 1 1.4 1.4L16.11 10.69"/><path d="M13.09 19.39 5.3 22.1a1 1 0 0 1-1.4-1.4l3.7-7.89"/><path d="M18.5 2.5 12 9 5.5 2.5"/><path d="m2 13 6 6 6-6"/><line x1="2" x2="22" y1="2" y2="22"/>
-              </svg>
-              <span className="mt-2 text-lg font-semibold">Reject</span>
-            </button>
-            <button
-              onClick={async () => {
-                const callDocRef = doc(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState`, 'currentCall');
-                const callData = (await getDoc(callDocRef)).data();
-                if (callData && callData.offer) {
-                  acceptCall(callData.offer, callData.callerId);
-                } else {
-                  showCustomModal("No active call offer found to accept.");
-                  setCurrentView('chat');
-                }
-              }}
-              className="flex flex-col items-center p-4 bg-green-500 rounded-full shadow-lg hover:bg-green-600 focus:outline-none focus:ring-4 focus:ring-green-400 transition duration-200"
-              title="Accept Call"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-phone-incoming">
-                <polyline points="16 2 16 8 22 8"/><line x1="16" x2="22" y1="8" y2="2"/><path d="M22 16.92v3.08a2 2 0 0 1-2 2A18.44 18.44 0 0 1 2 4a2 2 0 0 1 2-2h3.08L8.5 7.92A10.3 10.3 0 0 0 16 16z"/>
-              </svg>
-              <span className="mt-2 text-lg font-semibold">Accept</span>
-            </button>
-          </div>
+        <div className="call-modal incoming-call-modal fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+            <div className="modal-content bg-white p-8 rounded-2xl shadow-xl text-center max-w-sm w-full mx-auto transform scale-105 animate-pop-in">
+                <h1 className="call-status-text text-gray-900 font-extrabold text-5xl mb-2">Incoming</h1>
+                <h2 className="call-status-text text-gray-700 font-bold text-3xl mb-8">Video Call</h2>
+                <div className="call-actions flex justify-center space-x-8 mt-8">
+                    <button onClick={rejectCall} className="call-btn reject-btn flex flex-col items-center p-4 bg-red-500 rounded-full shadow-lg hover:bg-red-600 focus:outline-none focus:ring-4 focus:ring-red-400 transition duration-200 text-white">
+                        <span className="material-symbols-outlined text-5xl mb-2">call_end</span>
+                        <span className="text-lg font-semibold">Reject</span>
+                    </button>
+                    <button onClick={async () => {
+                        const callDocRef = doc(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState`, 'currentCall');
+                        const callData = (await getDoc(callDocRef)).data();
+                        if (callData && callData.offer) {
+                            acceptCall(callData.offer, callData.callerId);
+                        } else {
+                            showCustomModal("No active call offer found to accept.");
+                            setCurrentView('chat');
+                        }
+                    }} className="call-btn accept-btn flex flex-col items-center p-4 bg-green-500 rounded-full shadow-lg hover:bg-green-600 focus:outline-none focus:ring-4 focus:ring-green-400 transition duration-200 text-white">
+                        <span className="material-symbols-outlined text-5xl mb-2">call</span>
+                        <span className="text-lg font-semibold">Accept</span>
+                    </button>
+                </div>
+            </div>
         </div>
       )}
 
-
-      {/* Chat and Video Call Views (2.png, 4.jpg, 5.jpg) - Conditionally rendered */}
+      {/* Chat and Video Call Views (Based on provided index.html) */}
       {(currentView === 'chat' || currentView === 'videoCall') && (
-        <div className="flex flex-col flex-grow w-full max-w-full sm:max-w-sm md:max-w-md lg:max-w-xl h-[100dvh] bg-white rounded-lg shadow-xl overflow-hidden border border-gray-200">
-          {/* Chat Header (UI similar to 2.png) - Fixed to top */}
-          <div className="flex items-center justify-between p-4 bg-blue-600 text-white rounded-t-lg shadow-md sticky top-0 z-20">
-            <div className="flex items-center space-x-3">
-              <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-user-circle">
-                <circle cx="12" cy="12" r="10"/><circle cx="12" cy="10" r="3"/><path d="M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662"/>
-              </svg>
-              <div className="flex flex-col">
-                <h2 className="text-xl font-bold">{`${roomId}`}</h2>
-                <p className="text-sm font-medium flex items-center">
-                  <span className={`h-2.5 w-2.5 rounded-full mr-2 ${Object.keys(roomUsers).length === 2 ? 'bg-green-400' : 'bg-yellow-400'}`}></span>
-                  {Object.keys(roomUsers).length} Connected
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-3">
-              {isCallActive && (
-                 <span className="text-md font-semibold text-white mr-2">
-                   {formatTime(callTimer)}
-                 </span>
-              )}
-              <button
-                onClick={startCall}
-                title="Start Video Call"
-                className="p-2 rounded-full hover:bg-blue-700 transition duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-video">
-                  <path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="8" width="14" height="8" rx="2"/>
-                </svg>
-              </button>
-              <button
-                onClick={handleLeaveRoom}
-                title="Leave Room"
-                className="p-2 rounded-full hover:bg-red-700 transition duration-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-log-out">
-                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="17 16 22 12 17 8"/><line x1="22" x2="10" y1="12" y2="12"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          {/* Chat Messages Area - Scrolls */}
-          <div className="flex-grow p-4 space-y-4 overflow-y-auto bg-white relative">
-            {messages.length === 0 && (
-              <div className="flex-grow flex items-center justify-center text-gray-500">
-                <p>No messages yet. Start chatting!</p>
-              </div>
-            )}
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex ${msg.senderId === myUserId ? 'justify-end' : 'justify-start'}`}
-              >
-                {/* System messages will still display with this styling if added (e.g., from an old Firestore entry) but new ones are not generated */}
-                {msg.senderId === 'system' ? (
-                  <div className="text-center w-full">
-                    <span className="text-xs text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
-                      {msg.text}
-                    </span>
+        <div className="chat-container flex flex-col w-full max-w-full sm:max-w-md md:max-w-lg lg:max-w-xl h-[100dvh] bg-white rounded-lg shadow-xl overflow-hidden border border-gray-100 mx-auto">
+          {/* Chat Header (Fixed Position) */}
+          <header className="chat-header sticky top-0 z-20 bg-gradient-to-r from-blue-600 to-purple-700 text-white p-4 flex items-center justify-between shadow-md">
+              <div className="room-info flex items-center space-x-3">
+                  <span className="material-symbols-outlined user-avatar-header text-white text-4xl">person</span>
+                  <div className="details flex flex-col">
+                      <h2 id="roomDisplayName" className="text-xl font-bold">{`${roomId}`}</h2>
+                      <p className="user-status text-sm font-medium flex items-center">
+                          <span className={`status-dot h-2.5 w-2.5 rounded-full mr-2 ${Object.keys(roomUsers).length === 2 ? 'bg-green-400' : 'bg-yellow-400'}`}></span> 
+                          <span id="connectedUsersCount">{Object.keys(roomUsers).length}</span> Connected
+                      </p>
                   </div>
-                ) : (
-                  // Regular chat messages
-                  <div
-                    className={`max-w-[75%] p-3 rounded-xl shadow-sm relative ${
-                      msg.senderId === myUserId
-                        ? 'bg-blue-500 text-white rounded-br-none self-end'
-                        : 'bg-white text-gray-900 rounded-bl-none self-start border border-gray-200'
-                    }`}
-                  >
-                    <p className="text-base break-words">{msg.text}</p>
-                    <span className="text-xs text-gray-600 block text-right mt-1">
-                      {msg.senderId === myUserId ? 'You' : msg.senderName} • {msg.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                )}
               </div>
-            ))}
-            <div ref={messagesEndRef} />
-
-            {/* Video Call Overlay (UI similar to 5.jpg) - Conditionally rendered */}
-            {isCallActive && (
-              <div className="absolute inset-0 bg-black bg-opacity-75 flex flex-col items-center justify-center z-10">
-                <div className="relative w-full h-full flex flex-col items-center justify-center">
-                  {/* Remote Video (Main display) */}
-                  <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover"></video>
-                  {/* Local Video (Small overlay) */}
-                  <div className="absolute top-4 left-4 w-1/3 h-1/4 max-w-[120px] max-h-[160px] bg-blue-700 rounded-lg overflow-hidden shadow-lg border-2 border-white">
-                    <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover"></video>
-                  </div>
-
-                  {/* Video Call Controls (UI similar to 4.jpg) */}
-                  <div className="absolute bottom-4 left-0 right-0 flex justify-center items-center bg-transparent">
-                    <button
-                      onClick={toggleLocalVideo}
-                      title={isLocalVideoMuted ? "Unmute Video" : "Mute Video"}
-                      className={`p-3 rounded-full mx-2 ${isLocalVideoMuted ? 'bg-red-500' : 'bg-blue-700'} text-white hover:opacity-80 transition duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50`}
-                    >
-                      {isLocalVideoMuted ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-video-off">
-                          <path d="M10.66 6.13 2 12v4a2 2 0 0 0 2 2h10.66"/><path d="M17 17.34 22 20V8a2 2 0 0 0-2-2H8.66"/><line x1="2" x2="22" y1="2" y2="22"/>
-                        </svg>
-                      ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-video">
-                          <path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="8" width="14" height="8" rx="2"/>
-                        </svg>
-                      )}
-                    </button>
-                    <button
-                      onClick={toggleLocalAudio}
-                      title={isLocalAudioMuted ? "Unmute Audio" : "Mute Audio"}
-                      className={`p-3 rounded-full mx-2 ${isLocalAudioMuted ? 'bg-red-500' : 'bg-blue-700'} text-white hover:opacity-80 transition duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50`}
-                    >
-                      {isLocalAudioMuted ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-mic-off">
-                          <line x1="2" x2="22" y1="2" y2="22"/><path d="M10 9v3a6 6 0 0 0 8.73 4.13"/><path d="M16 16v2a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2"/><path d="M9.36 5.86A7.63 7.63 0 0 0 9 12v1a3 3 0 0 0 5.12 2.12"/><line x1="12" x2="12" y1="19" y2="22"/>
-                        </svg>
-                      ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-mic">
-                          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>
-                        </svg>
-                      )}
-                    </button>
-                    <button
-                      onClick={hangupCall}
-                      title="End Call"
-                      className="p-3 rounded-full bg-red-600 text-white mx-2 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-phone-off">
-                        <path d="M10.69 6.11 18.6 2.4a1 1 0 0 1 1.4 1.4L16.11 10.69"/><path d="M13.09 19.39 5.3 22.1a1 1 0 0 1-1.4-1.4l3.7-7.89"/><path d="M18.5 2.5 12 9 5.5 2.5"/><path d="m2 13 6 6 6-6"/><line x1="2" x2="22" y1="2" y2="22"/>
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
+              <div className="header-actions flex items-center space-x-4">
+                  {isCallActive && ( // Show call timer only when call is active
+                      <span className="call-timer text-md font-semibold text-white mr-2">
+                          {formatTime(callTimer)}
+                      </span>
+                  )}
+                  <span className="material-symbols-outlined video-call-icon text-white cursor-pointer hover:opacity-80 transition-opacity duration-200 text-3xl" id="videoCallBtn" onClick={startCall}>videocam</span>
+                  <span className="material-symbols-outlined leave-room-icon text-white cursor-pointer hover:opacity-80 transition-opacity duration-200 text-3xl" id="leaveRoomBtn" onClick={handleLeaveRoom}>logout</span>
               </div>
+          </header>
 
-              {/* Chat Input (UI similar to 2.png) - Fixed to bottom */}
-              <form onSubmit={handleSendMessage} className="p-4 bg-white border-t border-gray-200 sticky bottom-0 z-20">
-                <div className="flex items-center space-x-3 w-full">
-                  <button
-                    type="button"
-                    onClick={() => showCustomModal("Image upload is not yet implemented.")}
-                    className="p-2 rounded-full text-gray-600 hover:bg-gray-100 focus:outline-none flex-shrink-0"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-image-plus">
-                      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/><line x1="16" x2="22" y1="5" y2="5"/><line x1="19" x2="19" y1="2" y2="8"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
-                    </svg>
-                  </button>
-                  <input
-                    type="text"
-                    className="flex-grow px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400"
-                    placeholder="Type your message..."
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                  />
-                  <button
-                    type="submit"
-                    className="p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200 flex-shrink-0"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-send">
-                      <path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M9.3 9.3 17 17"/>
-                    </svg>
-                  </button>
+          {/* Chat Messages Area */}
+          <main id="chatMessages" className="chat-messages flex-grow p-4 space-y-4 overflow-y-auto bg-white pt-20"> {/* Added pt-20 to push content below sticky header */}
+              {messages.length === 0 && (
+                <div className="flex-grow flex items-center justify-center text-gray-500">
+                  <p>No messages yet. Start chatting!</p>
                 </div>
-              </form>
+              )}
+              {messages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`flex ${msg.senderId === myUserId ? 'justify-end' : 'justify-start'}`}
+                >
+                  {/* System messages (e.g., "User Joined", "User Left") */}
+                  {msg.senderId === 'system' ? (
+                    <div className="text-center w-full">
+                      <span className="text-xs text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+                        {msg.text}
+                      </span>
+                    </div>
+                  ) : (
+                    // Regular chat messages
+                    <div
+                      className={`max-w-[75%] p-3 rounded-xl shadow-sm relative ${
+                        msg.senderId === myUserId
+                          ? 'bg-blue-500 text-white rounded-br-none self-end'
+                          : 'bg-white text-gray-900 rounded-bl-none self-start border border-gray-200'
+                      }`}
+                    >
+                      <p className="text-base break-words">{msg.text}</p>
+                      <span className="text-xs text-gray-600 block text-right mt-1">
+                        {msg.senderId === myUserId ? 'You' : msg.senderName} • {msg.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
+          </main>
+
+          {/* Chat Footer (Fixed Position - Message Input) */}
+          <footer className="chat-footer sticky bottom-0 z-20 bg-gray-100 p-4 border-t border-gray-200 flex items-center space-x-3">
+              <label htmlFor="imageUpload" className="image-upload-label cursor-pointer text-gray-500 hover:text-gray-700 transition-colors duration-200 text-3xl">
+                  <span className="material-symbols-outlined">add_photo_alternate</span>
+                  <input type="file" id="imageUpload" accept="image/*" style={{ display: 'none' }} onChange={() => showCustomModal("Image upload is not yet implemented.")}/> {/* Added onChange for modal */}
+              </label>
+              <input
+                  type="text"
+                  id="messageInput"
+                  placeholder="Type your message..."
+                  autoComplete="off"
+                  className="flex-grow px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400"
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage(e)} // Allow sending message with Enter
+              />
+              <button id="sendMessageBtn" className="send-message-btn p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200" onClick={handleSendMessage}>
+                  <span className="material-symbols-outlined">send</span>
+              </button>
+          </footer>
+
+          {/* Active Video Call View (Full Screen Overlay) */}
+          {currentView === 'videoCall' && (
+            <div id="activeCallView" className="call-modal active-call-view fixed inset-0 bg-black flex flex-col items-center justify-center z-30">
+                <div id="callTimer" className="call-timer absolute top-4 left-1/2 -translate-x-1/2 bg-gray-900 bg-opacity-70 text-white px-4 py-2 rounded-full text-lg font-semibold z-40">
+                    {formatTime(callTimer)}
+                </div>
+                <video id="remoteVideo" ref={remoteVideoRef} autoPlay playsInline className="remote-video w-full h-full object-cover"></video>
+                <video id="localVideo" ref={localVideoRef} autoPlay playsInline muted className="local-video pip-video absolute bottom-4 right-4 w-1/3 h-1/4 max-w-[150px] max-h-[200px] rounded-lg overflow-hidden border-2 border-white shadow-lg object-cover"></video>
+                
+                <div className="call-controls absolute bottom-4 left-0 right-0 flex justify-center items-center bg-transparent z-40">
+                    <button className={`control-btn p-4 rounded-full mx-3 text-white transition duration-200 text-4xl shadow-md hover:shadow-lg ${isLocalVideoMuted ? 'bg-red-600' : 'bg-gray-800 hover:bg-gray-700'}`} onClick={toggleLocalVideo}>
+                        <span className="material-symbols-outlined">{isLocalVideoMuted ? 'videocam_off' : 'videocam'}</span>
+                    </button>
+                    <button className={`control-btn p-4 rounded-full mx-3 text-white transition duration-200 text-4xl shadow-md hover:shadow-lg ${isLocalAudioMuted ? 'bg-red-600' : 'bg-gray-800 hover:bg-gray-700'}`} onClick={toggleLocalAudio}>
+                        <span className="material-symbols-outlined">{isLocalAudioMuted ? 'mic_off' : 'mic'}</span>
+                    </button>
+                    <button className="control-btn end-call-btn p-4 rounded-full bg-red-600 text-white mx-3 hover:bg-red-700 transition duration-200 text-4xl shadow-md hover:shadow-lg" onClick={hangupCall}>
+                        <span className="material-symbols-outlined">call_end</span>
+                    </button>
+                </div>
             </div>
           )}
+
         </div>
-      );
-    }
+      )}
+    </div>
+  );
+}
+
+export default App;
