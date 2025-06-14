@@ -55,29 +55,31 @@ function App() {
   const [showModal, setShowModal] = useState(false);
   const [modalMessage, setModalMessage] = useState('');
   const [callInitiatorId, setCallInitiatorId] = useState(null);
-  const [isCalling, setIsCalling] = useState(false); // True when a call is being dialed or received
-  const [isCallActive, setIsCallActive] = useState(false); // True when WebRTC connection is established and streams are active
-  const [isLocalVideoMuted, setIsLocalVideoMuted] = useState(false); // State for local video mute button
-  const [isLocalAudioMuted, setIsLocalAudioMuted] = useState(false); // State for local audio mute button
-  const [callTimer, setCallTimer] = useState(0); // Timer for active video call duration
-  const callTimerRef = useRef(null); // Ref to store interval ID for call timer
-  const presenceIntervalRef = useRef(null); // Ref to store interval ID for presence updates
+  const [isCalling, setIsCalling] = useState(false);
+  const [isCallActive, setIsCallActive] = useState(false);
+  const [isLocalVideoMuted, setIsLocalVideoMuted] = useState(false);
+  const [isLocalAudioMuted, setIsLocalAudioMuted] = useState(false);
+  const [callTimer, setCallTimer] = useState(0);
+  const callTimerRef = useRef(null);
+  const presenceIntervalRef = useRef(null);
+  // Removed: isLocalPresenceUpdate ref as system messages are no longer generated
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
-  const messagesEndRef = useRef(null); // Ref for chat messages scroll
+  const messagesEndRef = useRef(null);
 
   // eslint-disable-next-line
   useEffect(() => {
-    if (callInitiatorId) {
-      // console.log('Call initiated by:', callInitiatorId); // Keeping this commented out as it's not strictly necessary for functionality
-    }
+    if (callInitiatorId) {}
   }, [callInitiatorId]);
 
   useEffect(() => {
-    // Auto-scroll messages to bottom whenever new messages arrive
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    scrollToBottom();
   }, [messages]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   const showCustomModal = useCallback((message) => {
     setModalMessage(message);
@@ -91,19 +93,19 @@ function App() {
 
   const updatePresence = useCallback(async (currentRoomId, currentUserName, currentMyUserId, status) => {
     if (!db || !currentUserName || !currentMyUserId) {
-        console.warn(`[Presence] Skipping updatePresence for user ${currentUserName} (${currentMyUserId}) status ${status}: DB, UserName, or UserID not ready.`);
-        return;
+      console.warn(`[Presence] Skipping updatePresence for user ${currentUserName} (${currentMyUserId}) status ${status}: DB, UserName, or UserID not ready.`);
+      return;
     }
 
     const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, currentRoomId);
-    const userStatusRef = doc(roomDocRef, 'users', currentUserName); // Document ID is userName
+    const userStatusRef = doc(roomDocRef, 'users', currentUserName); // Keyed by userName
 
     try {
       if (status === 'online') {
         await setDoc(userStatusRef, { 
-            userName: currentUserName, 
-            firebaseUid: currentMyUserId, 
-            lastSeen: serverTimestamp() 
+          userName: currentUserName, 
+          firebaseUid: currentMyUserId, 
+          lastSeen: serverTimestamp() 
         });
         console.log(`[Presence] User ${currentUserName} (${currentMyUserId}) set to online.`);
       } else if (status === 'offline') {
@@ -113,37 +115,35 @@ function App() {
     } catch (error) {
       console.error(`Error updating presence for ${currentUserName} (${currentMyUserId}) to ${status}:`, error);
     }
-  }, [db, appId]); // Add db and appId to useCallback dependencies
+  }, [db, appId]); // Added dependencies
 
   useEffect(() => {
-      // Set up periodic presence update only when in chat view and all necessary data is available
-      if (currentView === 'chat' && myUserId && roomId && userName && isAuthReady) {
-          console.log(`[PresenceInterval] Setting up periodic presence update for ${userName} (${myUserId}) in room ${roomId}`);
-          if (presenceIntervalRef.current) {
-              clearInterval(presenceIntervalRef.current);
-          }
-
-          presenceIntervalRef.current = setInterval(() => {
-              if (db && roomId && myUserId && userName) { 
-                  updatePresence(roomId, userName, myUserId, 'online');
-              }
-          }, 15 * 1000); // Update every 15 seconds
-
-          return () => {
-              if (presenceIntervalRef.current) {
-                  console.log(`[PresenceInterval] Clearing periodic presence update for ${userName} (${myUserId})`);
-                  clearInterval(presenceIntervalRef.current);
-                  presenceIntervalRef.current = null;
-              }
-          };
-      } else {
-          // Clear interval if not in chat view or dependencies are not ready
-          if (presenceIntervalRef.current) {
-              console.log("[PresenceInterval] Clearing interval due to view change or dependencies not ready.");
-              clearInterval(presenceIntervalRef.current);
-              presenceIntervalRef.current = null;
-          }
+    if (currentView === 'chat' && myUserId && roomId && userName && isAuthReady) {
+      console.log(`[PresenceInterval] Setting up periodic presence update for ${userName} (${myUserId}) in room ${roomId}`);
+      if (presenceIntervalRef.current) {
+        clearInterval(presenceIntervalRef.current);
       }
+
+      presenceIntervalRef.current = setInterval(() => {
+        if (db && roomId && myUserId && userName) { 
+          updatePresence(roomId, userName, myUserId, 'online');
+        }
+      }, 15 * 1000); // Update every 15 seconds
+
+      return () => {
+        if (presenceIntervalRef.current) {
+          console.log(`[PresenceInterval] Clearing periodic presence update for ${userName} (${myUserId})`);
+          clearInterval(presenceIntervalRef.current);
+          presenceIntervalRef.current = null;
+        }
+      };
+    } else {
+      if (presenceIntervalRef.current) {
+        console.log("[PresenceInterval] Clearing interval due to view change or dependencies not ready.");
+        clearInterval(presenceIntervalRef.current);
+        presenceIntervalRef.current = null;
+      }
+    }
   }, [currentView, myUserId, roomId, userName, isAuthReady, updatePresence, db]); // Added db to dependencies
 
   const hangupCall = useCallback(async () => {
@@ -171,22 +171,20 @@ function App() {
         const otherUserPresence = Object.values(roomUsers).find(user => user.firebaseUid !== myUserId);
         const otherUserId = otherUserPresence ? otherUserPresence.firebaseUid : null;
 
-        // Clean up candidates for current user
         const myCandidatesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState/${myUserId}/candidates`);
         const myCandidatesSnapshot = await getDocs(myCandidatesCollectionRef);
         myCandidatesSnapshot.forEach(async (candidateDoc) => {
           await deleteDoc(candidateDoc.ref);
         });
 
-        // Clean up candidates for the other user, if they exist
         if (otherUserId) {
-            const otherCandidatesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState/${otherUserId}/candidates`);
-            const otherCandidatesSnapshot = await getDocs(otherCandidatesCollectionRef);
-            otherCandidatesSnapshot.forEach(async (candidateDoc) => {
-              await deleteDoc(candidateDoc.ref);
-            });
+          const otherCandidatesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState/${otherUserId}/candidates`);
+          const otherCandidatesSnapshot = await getDocs(otherCandidatesCollectionRef);
+          otherCandidatesSnapshot.forEach(async (candidateDoc) => {
+            await deleteDoc(candidateDoc.ref);
+          });
         }
-        await deleteDoc(callDocRef); // Delete the main call state document
+        await deleteDoc(callDocRef);
       } catch (error) {
         console.error("Error clearing call state in Firestore:", error);
       }
@@ -197,7 +195,7 @@ function App() {
     setCallInitiatorId(null);
     setIsLocalVideoMuted(false);
     setIsLocalAudioMuted(false);
-    setCurrentView('chat'); // Always go back to chat view after hanging up
+    setCurrentView('chat');
   }, [roomId, myUserId, roomUsers, setIsCalling, setIsCallActive, setCallInitiatorId, setIsLocalVideoMuted, setIsLocalAudioMuted, setCurrentView, db, appId]); // Added dependencies
 
   useEffect(() => {
@@ -227,7 +225,6 @@ function App() {
     };
   }, [showCustomModal, auth]); // Removed roomId, userName, as they are not needed for auth state change listener
 
-  // Listen for room user presence changes (to update connected count)
   useEffect(() => {
     if (!roomId || !userName || !isAuthReady || !db) { 
         console.log("[RoomUsersEffect] Skipping onSnapshot setup: RoomID, UserName, Auth, or DB not ready.");
@@ -248,7 +245,7 @@ function App() {
       console.log("[RoomUsersEffect] Current snapshot usersData:", currentUsersData);
       console.log("[RoomUsersEffect] Previous roomUsers state:", roomUsers);
 
-      setRoomUsers(currentUsersData); // Update state to reflect current users in the room
+      setRoomUsers(currentUsersData); 
     }, (error) => {
       console.error("[RoomUsersEffect] Error fetching room users:", error);
     });
@@ -325,7 +322,7 @@ function App() {
         return;
       }
 
-      await new Promise(resolve => setTimeout(resolve, 300)); // Small delay to allow Firestore to propagate
+      await new Promise(resolve => setTimeout(resolve, 300)); 
       const usersSnapshotAfterCleanup = await getDocs(usersCollectionRef);
       const existingUsernamesAfterCleanup = usersSnapshotAfterCleanup.docs.map(doc => doc.id);
       
@@ -341,7 +338,7 @@ function App() {
       await updatePresence(roomId, userName.trim(), myUserId, 'online');
       console.log(`[JoinRoom] User ${userName} (${myUserId}) presence set to online after capacity and cleanup checks.`);
       
-      setCurrentView('chat'); // Transition to chat view
+      setCurrentView('chat');
       console.log(`[JoinRoom] Successfully joined room ${roomId}.`);
 
     } catch (error) {
@@ -352,17 +349,16 @@ function App() {
 
   const handleLeaveRoom = async () => {
     if (isCallActive) {
-      await hangupCall(); // Hang up active call if any
+      await hangupCall();
     }
 
     try {
       if (myUserId && roomId && userName) {
-        await updatePresence(roomId, userName, myUserId, 'offline'); // Set user presence offline
+        await updatePresence(roomId, userName, myUserId, 'offline');
       }
     } catch (error) {
         console.error("[LeaveRoom] Error during leave process:", error);
     } finally {
-        // Reset all relevant state for leaving the room
         setRoomId('');
         setUserName('');
         setMessages([]);
@@ -407,14 +403,13 @@ function App() {
         text: newMessage,
         timestamp: serverTimestamp(),
       });
-      setNewMessage(''); // Clear input field after sending
+      setNewMessage('');
     } catch (error) {
       console.error("Error sending message:", error);
       showCustomModal(`Failed to send message: ${error.message}`);
     }
   };
 
-  // Listen for chat messages (remains in App.js as it's global chat state)
   useEffect(() => {
     if (!db || !roomId || (currentView !== 'chat' && currentView !== 'videoCall') || !myUserId) return;
 
@@ -432,9 +427,8 @@ function App() {
     });
 
     return () => unsubscribe();
-  }, [roomId, currentView, myUserId, db, appId]); // Added db, appId to dependencies
+  }, [roomId, currentView, myUserId, db, appId]); // Added db and appId to dependencies
 
-  // WebRTC servers configuration
   const servers = {
     iceServers: [
       { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
@@ -448,14 +442,12 @@ function App() {
     }
     peerConnection = new RTCPeerConnection(servers);
 
-    // Add local stream tracks to peer connection
     if (localStream) {
       localStream.getTracks().forEach(track => {
         peerConnection.addTrack(track, localStream);
       });
     }
 
-    // Handle remote tracks received from peer
     peerConnection.ontrack = (event) => {
       if (remoteVideoRef.current && event.streams[0]) {
         remoteVideoRef.current.srcObject = event.streams[0];
@@ -463,7 +455,6 @@ function App() {
       }
     };
 
-    // Gather ICE candidates and send to Firestore
     peerConnection.onicecandidate = async (event) => {
       if (event.candidate) {
         const candidatesCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState/${myUserId}/candidates`);
@@ -471,18 +462,16 @@ function App() {
       }
     };
 
-    // Monitor peer connection state changes
     peerConnection.onconnectionstatechange = (event) => {
       console.log('Peer connection state:', peerConnection.connectionState);
       if (peerConnection.connectionState === 'connected') {
         setIsCallActive(true);
-        // Start call timer when connected
         callTimerRef.current = setInterval(() => {
           setCallTimer(prevTime => prevTime + 1);
         }, 1000);
       } else if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
         showCustomModal("Video call disconnected.");
-        hangupCall(); // Clean up on disconnection
+        hangupCall();
       }
     };
 
@@ -492,7 +481,6 @@ function App() {
   };
 
   const startCall = async () => {
-    // Check if another user is in the room
     const otherUserPresence = Object.values(roomUsers).find(user => user.firebaseUid !== myUserId);
     const otherUserId = otherUserPresence ? otherUserPresence.firebaseUid : null;
 
@@ -505,8 +493,8 @@ function App() {
       return;
     }
 
-    setIsCalling(true); // Indicate that a call is being initiated
-    setCallInitiatorId(myUserId); // Set current user as initiator
+    setIsCalling(true);
+    setCallInitiatorId(myUserId);
 
     try {
       localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -527,21 +515,19 @@ function App() {
         },
         callerId: myUserId,
         timestamp: serverTimestamp(),
-        status: 'pending', // Set call status to pending
+        status: 'pending',
       });
 
-      // Listen for the answer from the recipient
       const unsubscribeAnswer = onSnapshot(callDocRef, async (snapshot) => {
         const data = snapshot.data();
         if (data?.answer && !peerConnection.currentRemoteDescription && data.answererId === otherUserId) {
           const answerDescription = new RTCSessionDescription(data.answer);
           await peerConnection.setRemoteDescription(answerDescription);
           listenForRemoteIceCandidates(otherUserId, peerConnection);
-          unsubscribeAnswer(); // Stop listening once answer is received
-          // Current view is already chat, VideoCallUI will become visible via isCallActive state
+          unsubscribeAnswer();
         } else if (data?.status === 'rejected' && data.answererId === otherUserId) {
             showCustomModal("Call rejected by the other user.");
-            hangupCall(); // Clean up if call rejected
+            hangupCall();
         }
       }, (error) => {
         console.error("Error listening for answer:", error);
@@ -553,13 +539,13 @@ function App() {
       console.error("Error starting call:", error);
       showCustomModal(`Failed to start video call: ${error.message}. Please ensure camera/microphone permissions are granted.`);
       setIsCalling(false);
-      hangupCall(); // Clean up on error
+      hangupCall();
     }
   };
 
   const acceptCall = async (offerData, callerId) => {
-    setIsCalling(true); // Indicate call is being handled (accepted)
-    setCallInitiatorId(callerId); // Store who initiated the call
+    setIsCalling(true);
+    setCallInitiatorId(callerId);
 
     try {
       localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -570,10 +556,10 @@ function App() {
       await createPeerConnection();
 
       const offerDescription = new RTCSessionDescription(offerData);
-      await peerConnection.setRemoteDescription(offerDescription); // Set remote offer
+      await peerConnection.setRemoteDescription(offerDescription);
 
       const answer = await peerConnection.createAnswer();
-      await peerConnection.setLocalDescription(answer); // Set local answer
+      await peerConnection.setLocalDescription(answer);
 
       const callDocRef = doc(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState`, 'currentCall');
       await updateDoc(callDocRef, {
@@ -581,18 +567,18 @@ function App() {
           sdp: answer.sdp,
           type: answer.type,
         },
-        answererId: myUserId, // Set current user as answerer
-        status: 'active', // Set call status to active
+        answererId: myUserId,
+        status: 'active',
       });
 
       listenForRemoteIceCandidates(callerId, peerConnection);
 
-      setCurrentView('chat'); // Remain in chat view, VideoCallUI will show as overlay
+      setCurrentView('chat');
     } catch (error) {
       console.error("Error accepting call:", error);
       showCustomModal(`Failed to accept video call: ${error.message}. Please ensure camera/microphone permissions are granted.`);
       setIsCalling(false);
-      hangupCall(); // Clean up on error
+      hangupCall();
     }
   };
 
@@ -600,17 +586,16 @@ function App() {
     if (db && roomId) {
       try {
         const callDocRef = doc(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState`, 'currentCall');
-        // Update call status to rejected
         await updateDoc(callDocRef, { status: 'rejected', answererId: myUserId });
       } catch (error) {
         console.error("Error rejecting call:", error);
       }
     }
-    setCurrentView('chat'); // Always go back to chat after rejecting
+    setCurrentView('chat');
     setIsCalling(false);
   };
 
-  // Listener for remote ICE candidates
+
   const listenForRemoteIceCandidates = useCallback(async (remotePeerId, pc) => {
     if (!db || !roomId || !pc || !remotePeerId) return;
 
@@ -658,31 +643,27 @@ function App() {
     return `${minutes < 10 ? '0' : ''}${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
   };
 
-  // Listen for incoming calls (global listener for App.js)
   useEffect(() => {
-    if (!db || !roomId || !myUserId || currentView === 'login') return; // Don't listen for calls on login page
+    if (!db || !roomId || !myUserId || currentView === 'login') return;
 
     const callDocRef = doc(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState`, 'currentCall');
 
     const unsubscribeCall = onSnapshot(callDocRef, async (snapshot) => {
       const callData = snapshot.data();
       if (callData && callData.status === 'pending' && callData.callerId !== myUserId && !isCalling && !isCallActive) {
-        // Incoming call for *this* user, not initiated by self, and no call currently active/dialing
         setCurrentView('incomingCall');
-        setCallInitiatorId(callData.callerId); // Store who is calling
+        setCallInitiatorId(callData.callerId);
       } else if (!callData && (currentView === 'incomingCall' || isCalling)) {
-        // Call ended or cancelled by other party before accepted/connected
         console.log("Call document disappeared while waiting or calling.");
-        if (isCalling) { // If we were in the process of calling someone
+        if (isCalling) {
             showCustomModal("Call ended by other party or cancelled.");
         }
-        hangupCall(); // Clean up any hanging call state
-        setCurrentView('chat'); // Return to chat view
+        hangupCall();
+        setCurrentView('chat');
       } else if (callData && callData.status === 'rejected' && callData.answererId === myUserId) {
-        // We rejected the call, or other party rejected our call (and we were the caller)
         console.log("Call rejected received or sent.");
-        hangupCall(); // Clean up
-        setCurrentView('chat'); // Return to chat view
+        hangupCall();
+        setCurrentView('chat');
       }
     }, (error) => {
       console.error("Error listening for call state:", error);
@@ -699,7 +680,6 @@ function App() {
     );
   }
 
-  // Outermost container classes to match body styles (Roboto, pure white background, etc.)
   const outerContainerClasses = 'flex flex-col min-h-[100dvh] bg-white text-gray-900 font-sans antialiased leading-relaxed';
 
   return (
@@ -749,8 +729,7 @@ function App() {
                             required
                             className="w-full px-5 py-4 border border-gray-200 rounded-xl text-base text-gray-900 outline-none focus:border-blue-600 transition-colors duration-300 placeholder-gray-400 sm:px-5 sm:py-4 sm:rounded-[10px] sm:text-base"
                             value={userName}
-                            onChange={(e) => setNewMessage(e.target.value)} // Corrected: onChange to setNewMessage
-                            onChange={(e) => setUserName(e.target.value)} // Corrected to setUserName
+                            onChange={(e) => setUserName(e.target.value)}
                         />
                     </div>
                     <button
