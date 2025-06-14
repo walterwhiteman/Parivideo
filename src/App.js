@@ -731,7 +731,7 @@ function App() {
               id="userName"
               className="w-full px-5 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400"
               value={userName}
-              onChange={(e) => setNewMessage(e.target.value)}
+              onChange={(e) => setUserName(e.target.value)} // <-- FIX IS HERE
               placeholder="User Name"
             />
           </div>
