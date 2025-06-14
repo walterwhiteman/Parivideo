@@ -657,17 +657,15 @@ function App() {
     );
   }
 
-  const outerContainerClasses =
-    currentView === 'login' || currentView === 'incomingCall' || currentView === 'videoCall'
-      ? 'flex flex-col items-center justify-center min-h-[100dvh] bg-gray-50 font-sans antialiased' // Adjusted for videoCall to also center and have bg
-      : 'flex flex-col min-h-[100dvh] bg-gray-50 font-sans antialiased'; 
+  // Adjusted outermost container classes to match body styles (Roboto, pure white background)
+  const outerContainerClasses = 'flex flex-col min-h-[100dvh] bg-white text-gray-900 font-sans antialiased leading-relaxed';
 
   return (
     <div className={outerContainerClasses}>
       {/* Custom Modal for Alerts (conditionally rendered) */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl text-center max-w-sm w-full mx-4">
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-8 rounded-xl shadow-xl text-center max-w-sm w-full mx-4 sm:p-10">
             <p className="text-lg font-semibold text-gray-800 mb-4">{modalMessage}</p>
             <button
               onClick={closeCustomModal}
@@ -679,42 +677,42 @@ function App() {
         </div>
       )}
 
-      {/* Login View (Based on provided index.html) */}
+      {/* Login View (Based on provided index.html and style.css) */}
       {currentView === 'login' && (
-        <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-gradient-to-br from-blue-600 to-purple-700 w-full p-4 font-sans text-center">
-            <div className="bg-white p-8 sm:p-10 rounded-2xl shadow-2xl w-full max-w-sm transform transition-all duration-300 ease-in-out hover:scale-105">
-                <div className="app-logo flex justify-center mb-6">
-                    <span className="material-symbols-outlined text-blue-600 text-8xl">person</span>
+        <div className="login-container flex flex-col items-center justify-center min-h-[100dvh] bg-white w-full p-4 sm:p-0"> {/* Adjusted for centering and responsiveness */}
+            <div className="bg-white p-10 rounded-xl shadow-xl text-center max-w-[400px] w-[90%] flex flex-col items-center gap-6 sm:p-10 sm:rounded-[15px] sm:shadow-2xl"> {/* Responsive adjustments for login card */}
+                <div className="app-logo bg-blue-50 rounded-full w-[100px] h-[100px] flex justify-center items-center mb-2">
+                    <span className="material-symbols-outlined text-blue-600 text-[60px]">person</span>
                 </div>
-                <h1 className="text-5xl font-extrabold text-gray-900 mb-2">Parichat</h1>
-                <p className="text-base text-gray-600 font-medium mb-8">Seamlessly Connect. Chat & Video Call. Privately.</p>
+                <h1 className="app-name text-blue-600 text-5xl font-bold mb-0 sm:text-[2.5rem]">Parichat</h1>
+                <p className="app-tagline text-gray-600 text-base font-medium mt-[-0.5rem] mb-6 sm:text-base">Seamlessly Connect. Chat & Video Call. Privately.</p>
 
-                <form onSubmit={handleJoinRoom} className="login-form space-y-5">
-                    <div className="input-group">
+                <form onSubmit={handleJoinRoom} className="login-form w-full flex flex-col space-y-4">
+                    <div className="input-group w-full">
                         <input
                             type="text"
                             id="roomCode"
                             placeholder="Room Code"
                             required
-                            className="w-full px-5 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400 text-base"
+                            className="w-full px-5 py-4 border border-gray-200 rounded-xl text-base text-gray-900 outline-none focus:border-blue-600 transition-colors duration-300 placeholder-gray-400 sm:px-5 sm:py-4 sm:rounded-[10px] sm:text-base"
                             value={roomId}
                             onChange={(e) => setRoomId(e.target.value)}
                         />
                     </div>
-                    <div className="input-group">
+                    <div className="input-group w-full">
                         <input
                             type="text"
                             id="userName"
                             placeholder="User Name"
                             required
-                            className="w-full px-5 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400 text-base"
+                            className="w-full px-5 py-4 border border-gray-200 rounded-xl text-base text-gray-900 outline-none focus:border-blue-600 transition-colors duration-300 placeholder-gray-400 sm:px-5 sm:py-4 sm:rounded-[10px] sm:text-base"
                             value={userName}
                             onChange={(e) => setUserName(e.target.value)}
                         />
                     </div>
                     <button
                         type="submit"
-                        className="join-button w-full bg-blue-600 text-white py-3 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-300 text-xl font-bold uppercase tracking-wide shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                        className="join-button w-full py-4 px-6 bg-blue-600 text-white border-none rounded-xl text-lg font-medium cursor-pointer uppercase tracking-wider shadow-md hover:bg-blue-700 hover:translate-y-[-2px] active:bg-blue-800 transition-all duration-300 sm:py-[1.2rem] sm:px-[1.5rem] sm:rounded-[10px] sm:text-[1.1rem] sm:font-medium sm:tracking-[0.05em]"
                     >
                         JOIN ROOM
                     </button>
@@ -726,16 +724,16 @@ function App() {
         </div>
       )}
 
-      {/* Incoming Call Modal (Based on provided index.html) */}
+      {/* Incoming Call Modal (Based on provided index.html and style.css) */}
       {currentView === 'incomingCall' && (
         <div className="call-modal incoming-call-modal fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
             <div className="modal-content bg-white p-8 rounded-2xl shadow-xl text-center max-w-sm w-full mx-auto transform scale-105 animate-pop-in">
-                <h1 className="call-status-text text-gray-900 font-extrabold text-5xl mb-2">Incoming</h1>
-                <h2 className="call-status-text text-gray-700 font-bold text-3xl mb-8">Video Call</h2>
-                <div className="call-actions flex justify-center space-x-8 mt-8">
-                    <button onClick={rejectCall} className="call-btn reject-btn flex flex-col items-center p-4 bg-red-500 rounded-full shadow-lg hover:bg-red-600 focus:outline-none focus:ring-4 focus:ring-red-400 transition duration-200 text-white">
-                        <span className="material-symbols-outlined text-5xl mb-2">call_end</span>
-                        <span className="text-lg font-semibold">Reject</span>
+                <h1 className="call-status-text text-gray-900 font-extrabold text-5xl mb-2 sm:text-4xl">Incoming</h1>
+                <h2 className="call-status-text text-gray-700 font-bold text-3xl mb-8 sm:text-2xl">Video Call</h2>
+                <div className="call-actions flex justify-center space-x-8 mt-8 sm:space-x-8 sm:mt-8 sm:gap-8">
+                    <button onClick={rejectCall} className="call-btn reject-btn flex flex-col items-center p-4 bg-red-500 rounded-full shadow-lg hover:bg-red-600 focus:outline-none focus:ring-4 focus:ring-red-400 transition duration-200 text-white w-24 h-24 sm:w-20 sm:h-20">
+                        <span className="material-symbols-outlined text-5xl mb-2 sm:text-[35px]">call_end</span>
+                        <span className="text-lg font-semibold sm:text-base">Reject</span>
                     </button>
                     <button onClick={async () => {
                         const callDocRef = doc(db, `artifacts/${appId}/public/data/rooms/${roomId}/callState`, 'currentCall');
@@ -746,25 +744,25 @@ function App() {
                             showCustomModal("No active call offer found to accept.");
                             setCurrentView('chat');
                         }
-                    }} className="call-btn accept-btn flex flex-col items-center p-4 bg-green-500 rounded-full shadow-lg hover:bg-green-600 focus:outline-none focus:ring-4 focus:ring-green-400 transition duration-200 text-white">
-                        <span className="material-symbols-outlined text-5xl mb-2">call</span>
-                        <span className="text-lg font-semibold">Accept</span>
+                    }} className="call-btn accept-btn flex flex-col items-center p-4 bg-green-500 rounded-full shadow-lg hover:bg-green-600 focus:outline-none focus:ring-4 focus:ring-green-400 transition duration-200 text-white w-24 h-24 sm:w-20 sm:h-20">
+                        <span className="material-symbols-outlined text-5xl mb-2 sm:text-[35px]">call</span>
+                        <span className="text-lg font-semibold sm:text-base">Accept</span>
                     </button>
                 </div>
             </div>
         </div>
       )}
 
-      {/* Chat and Video Call Views (Based on provided index.html) */}
+      {/* Chat and Video Call Views (Based on provided index.html and style.css) */}
       {(currentView === 'chat' || currentView === 'videoCall') && (
         <div className="chat-container flex flex-col w-full max-w-full sm:max-w-md md:max-w-lg lg:max-w-xl h-[100dvh] bg-white rounded-lg shadow-xl overflow-hidden border border-gray-100 mx-auto">
           {/* Chat Header (Fixed Position) */}
           <header className="chat-header sticky top-0 z-20 bg-gradient-to-r from-blue-600 to-purple-700 text-white p-4 flex items-center justify-between shadow-md">
               <div className="room-info flex items-center space-x-3">
-                  <span className="material-symbols-outlined user-avatar-header text-white text-4xl">person</span>
+                  <span className="material-symbols-outlined user-avatar-header text-white text-4xl sm:text-2xl">person</span>
                   <div className="details flex flex-col">
                       <h2 id="roomDisplayName" className="text-xl font-bold">{`${roomId}`}</h2>
-                      <p className="user-status text-sm font-medium flex items-center">
+                      <p className="user-status text-sm font-medium flex items-center sm:text-xs">
                           <span className={`status-dot h-2.5 w-2.5 rounded-full mr-2 ${Object.keys(roomUsers).length === 2 ? 'bg-green-400' : 'bg-yellow-400'}`}></span> 
                           <span id="connectedUsersCount">{Object.keys(roomUsers).length}</span> Connected
                       </p>
@@ -776,13 +774,13 @@ function App() {
                           {formatTime(callTimer)}
                       </span>
                   )}
-                  <span className="material-symbols-outlined video-call-icon text-white cursor-pointer hover:opacity-80 transition-opacity duration-200 text-3xl" id="videoCallBtn" onClick={startCall}>videocam</span>
-                  <span className="material-symbols-outlined leave-room-icon text-white cursor-pointer hover:opacity-80 transition-opacity duration-200 text-3xl" id="leaveRoomBtn" onClick={handleLeaveRoom}>logout</span>
+                  <span className="material-symbols-outlined video-call-icon text-white cursor-pointer hover:opacity-80 transition-opacity duration-200 text-3xl sm:text-2xl" id="videoCallBtn" onClick={startCall}>videocam</span>
+                  <span className="material-symbols-outlined leave-room-icon text-white cursor-pointer hover:opacity-80 transition-opacity duration-200 text-3xl sm:text-2xl" id="leaveRoomBtn" onClick={handleLeaveRoom}>logout</span>
               </div>
           </header>
 
           {/* Chat Messages Area */}
-          <main id="chatMessages" className="chat-messages flex-grow p-4 space-y-4 overflow-y-auto bg-white pt-20"> {/* Added pt-20 to push content below sticky header */}
+          <main id="chatMessages" className="chat-messages flex-grow p-4 space-y-4 overflow-y-auto bg-white pt-20 sm:p-3 sm:pt-[60px] sm:pb-[60px]"> {/* Adjusted pt/pb for sticky header/footer */}
               {messages.length === 0 && (
                 <div className="flex-grow flex items-center justify-center text-gray-500">
                   <p>No messages yet. Start chatting!</p>
@@ -793,7 +791,7 @@ function App() {
                   key={msg.id}
                   className={`flex ${msg.senderId === myUserId ? 'justify-end' : 'justify-start'}`}
                 >
-                  {/* System messages (e.g., "User Joined", "User Left") */}
+                  {/* System messages will still display with this styling if added (e.g., from an old Firestore entry) but new ones are not generated */}
                   {msg.senderId === 'system' ? (
                     <div className="text-center w-full">
                       <span className="text-xs text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
@@ -807,10 +805,10 @@ function App() {
                         msg.senderId === myUserId
                           ? 'bg-blue-500 text-white rounded-br-none self-end'
                           : 'bg-white text-gray-900 rounded-bl-none self-start border border-gray-200'
-                      }`}
+                      } sm:px-[0.8rem] sm:py-[0.6rem] sm:text-sm`}
                     >
                       <p className="text-base break-words">{msg.text}</p>
-                      <span className="text-xs text-gray-600 block text-right mt-1">
+                      <span className="text-xs text-gray-600 block text-right mt-1 sm:text-[0.7rem]">
                         {msg.senderId === myUserId ? 'You' : msg.senderName} • {msg.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
@@ -821,7 +819,7 @@ function App() {
           </main>
 
           {/* Chat Footer (Fixed Position - Message Input) */}
-          <footer className="chat-footer sticky bottom-0 z-20 bg-gray-100 p-4 border-t border-gray-200 flex items-center space-x-3">
+          <footer className="chat-footer sticky bottom-0 z-20 bg-gray-100 p-4 border-t border-gray-200 flex items-center space-x-3 sm:px-3 sm:py-2">
               <label htmlFor="imageUpload" className="image-upload-label cursor-pointer text-gray-500 hover:text-gray-700 transition-colors duration-200 text-3xl">
                   <span className="material-symbols-outlined">add_photo_alternate</span>
                   <input type="file" id="imageUpload" accept="image/*" style={{ display: 'none' }} onChange={() => showCustomModal("Image upload is not yet implemented.")}/> {/* Added onChange for modal */}
@@ -831,12 +829,12 @@ function App() {
                   id="messageInput"
                   placeholder="Type your message..."
                   autoComplete="off"
-                  className="flex-grow px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400"
+                  className="flex-grow px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400 sm:px-4 sm:py-2 sm:text-base"
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleSendMessage(e)} // Allow sending message with Enter
               />
-              <button id="sendMessageBtn" className="send-message-btn p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200" onClick={handleSendMessage}>
+              <button id="sendMessageBtn" className="send-message-btn p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200 w-12 h-12 flex items-center justify-center text-2xl sm:w-[40px] sm:h-[40px] sm:text-[20px]" onClick={handleSendMessage}>
                   <span className="material-symbols-outlined">send</span>
               </button>
           </footer>
@@ -848,16 +846,16 @@ function App() {
                     {formatTime(callTimer)}
                 </div>
                 <video id="remoteVideo" ref={remoteVideoRef} autoPlay playsInline className="remote-video w-full h-full object-cover"></video>
-                <video id="localVideo" ref={localVideoRef} autoPlay playsInline muted className="local-video pip-video absolute bottom-4 right-4 w-1/3 h-1/4 max-w-[150px] max-h-[200px] rounded-lg overflow-hidden border-2 border-white shadow-lg object-cover"></video>
+                <video id="localVideo" ref={localVideoRef} autoPlay playsInline muted className="local-video pip-video absolute bottom-4 right-4 w-1/3 h-1/4 max-w-[150px] max-h-[200px] rounded-lg overflow-hidden border-2 border-white shadow-lg object-cover sm:w-[100px] sm:h-[130px]"></video>
                 
-                <div className="call-controls absolute bottom-4 left-0 right-0 flex justify-center items-center bg-transparent z-40">
-                    <button className={`control-btn p-4 rounded-full mx-3 text-white transition duration-200 text-4xl shadow-md hover:shadow-lg ${isLocalVideoMuted ? 'bg-red-600' : 'bg-gray-800 hover:bg-gray-700'}`} onClick={toggleLocalVideo}>
+                <div className="call-controls absolute bottom-4 left-0 right-0 flex justify-center items-center bg-transparent z-40 p-4 sm:p-3 sm:gap-4">
+                    <button className={`control-btn p-4 rounded-full mx-3 text-white transition duration-200 text-4xl shadow-md hover:shadow-lg ${isLocalVideoMuted ? 'bg-red-600' : 'bg-gray-800 hover:bg-gray-700'} w-16 h-16 flex items-center justify-center sm:w-[50px] sm:h-[50px] sm:text-[26px]`} onClick={toggleLocalVideo}>
                         <span className="material-symbols-outlined">{isLocalVideoMuted ? 'videocam_off' : 'videocam'}</span>
                     </button>
-                    <button className={`control-btn p-4 rounded-full mx-3 text-white transition duration-200 text-4xl shadow-md hover:shadow-lg ${isLocalAudioMuted ? 'bg-red-600' : 'bg-gray-800 hover:bg-gray-700'}`} onClick={toggleLocalAudio}>
+                    <button className={`control-btn p-4 rounded-full mx-3 text-white transition duration-200 text-4xl shadow-md hover:shadow-lg ${isLocalAudioMuted ? 'bg-red-600' : 'bg-gray-800 hover:bg-gray-700'} w-16 h-16 flex items-center justify-center sm:w-[50px] sm:h-[50px] sm:text-[26px]`} onClick={toggleLocalAudio}>
                         <span className="material-symbols-outlined">{isLocalAudioMuted ? 'mic_off' : 'mic'}</span>
                     </button>
-                    <button className="control-btn end-call-btn p-4 rounded-full bg-red-600 text-white mx-3 hover:bg-red-700 transition duration-200 text-4xl shadow-md hover:shadow-lg" onClick={hangupCall}>
+                    <button className="control-btn end-call-btn p-4 rounded-full bg-red-600 text-white mx-3 hover:bg-red-700 transition duration-200 text-4xl shadow-md hover:shadow-lg w-16 h-16 flex items-center justify-center sm:w-[50px] sm:h-[50px] sm:text-[26px]" onClick={hangupCall}>
                         <span className="material-symbols-outlined">call_end</span>
                     </button>
                 </div>
