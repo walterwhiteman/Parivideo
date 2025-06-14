@@ -62,7 +62,6 @@ function App() {
   const [callTimer, setCallTimer] = useState(0);
   const callTimerRef = useRef(null);
   const presenceIntervalRef = useRef(null);
-  // Removed: isLocalPresenceUpdate ref as system messages are no longer generated
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -221,15 +220,8 @@ function App() {
       setIsAuthReady(true);
     });
 
-    // Removed: handleBeforeUnload logic that sent system messages
-
-    // Removed: window.addEventListener('beforeunload', handleBeforeUnload);
-    // Removed: window.addEventListener('unload', handleBeforeUnload); 
-
     return () => {
       unsubscribeAuth();
-      // Removed: window.removeEventListener('beforeunload', handleBeforeUnload);
-      // Removed: window.removeEventListener('unload', handleBeforeUnload);
     };
   }, [roomId, myUserId, userName, showCustomModal]);
 
@@ -239,7 +231,6 @@ function App() {
         return;
     }
 
-    // Removed: messagesCollectionRef as no system messages are sent from here anymore
     const roomUsersRef = collection(db, `artifacts/${appId}/public/data/rooms`, roomId, 'users');
     const q = query(roomUsersRef);
 
@@ -253,9 +244,6 @@ function App() {
       console.log(`[RoomUsersEffect] onSnapshot received ${snapshot.docs.length} user documents.`);
       console.log("[RoomUsersEffect] Current snapshot usersData:", currentUsersData);
       console.log("[RoomUsersEffect] Previous roomUsers state:", roomUsers);
-
-      // Removed: Logic to detect usersWhoLeft and send system messages
-      // This is because we agreed to remove all join/leave notifications.
 
       setRoomUsers(currentUsersData); 
     }, (error) => {
@@ -280,11 +268,8 @@ function App() {
 
     const roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, roomId);
     const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/rooms`, roomId, 'users');
-    // Removed: messagesCollectionRef as no system messages are sent from here anymore
 
     try {
-      // Removed: isLocalPresenceUpdate.current = true;
-
       const roomDoc = await getDoc(roomDocRef);
       if (!roomDoc.exists()) {
         await setDoc(roomDocRef, {
@@ -302,7 +287,6 @@ function App() {
       
       const usersToDeletePromises = [];
       let isTargetUsernameTakenByAnother = false;
-      // Removed: isRejoiningSameUser as no join/rejoin messages are sent
 
       for (const userDoc of usersSnapshotPreCleanup.docs) {
           const docUserName = userDoc.id;
@@ -321,7 +305,6 @@ function App() {
                       isTargetUsernameTakenByAnother = true; 
                   } else {
                       console.log(`[JoinRoom] Rejoining as existing user ${docUserName} (${myUserId}).`);
-                      // No longer need to set isRejoiningSameUser
                   }
               }
           } else if (isStale) {
@@ -354,8 +337,6 @@ function App() {
 
       await updatePresence(roomId, userName.trim(), myUserId, 'online');
       console.log(`[JoinRoom] User ${userName} (${myUserId}) presence set to online after capacity and cleanup checks.`);
-
-      // Removed: Add 'Joined' message to Firestore
       
       setCurrentView('chat');
       console.log(`[JoinRoom] Successfully joined room ${roomId}.`);
@@ -363,8 +344,6 @@ function App() {
     } catch (error) {
       console.error("[JoinRoom] Error joining room (caught in handleJoinRoom):", error);
       showCustomModal(`Failed to join room: ${error.message}`);
-    } finally {
-        // Removed: setTimeout for isLocalPresenceUpdate reset
     }
   };
 
@@ -374,16 +353,12 @@ function App() {
     }
 
     try {
-      // Removed: isLocalPresenceUpdate.current = true;
-
       if (myUserId && roomId && userName) {
         await updatePresence(roomId, userName, myUserId, 'offline');
-        // Removed: Send a system message for explicit graceful leave
       }
     } catch (error) {
         console.error("[LeaveRoom] Error during leave process:", error);
     } finally {
-        // Reset all state for leaving the room
         setRoomId('');
         setUserName('');
         setMessages([]);
@@ -408,7 +383,6 @@ function App() {
           clearInterval(callTimerRef.current);
           setCallTimer(0);
         }
-        // Removed: setTimeout for isLocalPresenceUpdate reset
     }
   };
 
@@ -700,47 +674,50 @@ function App() {
         </div>
       )}
 
-      {/* Login View (UI1.png) - Conditionally rendered */}
+      {/* Login View (Based on provided index.html) */}
       {currentView === 'login' && (
-        <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md border border-gray-200">
-          <div className="flex flex-col items-center mb-8">
-            <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-user-round text-blue-600 mb-4">
-              <circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>
-            </svg>
-            <h1 className="text-4xl font-extrabold text-blue-600 mb-2">Parivideo</h1>
-            <p className="text-lg text-gray-900 font-medium">Private Chat & Video Call</p>
-          </div>
-          <div className="mb-4">
-            <label htmlFor="roomCode" className="sr-only">Room Code</label>
-            <input
-              type="text"
-              id="roomCode"
-              className="w-full px-5 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400"
-              value={roomId}
-              onChange={(e) => setRoomId(e.target.value)}
-              placeholder="Room Code"
-            />
-          </div>
-          <div className="mb-8">
-            <label htmlFor="userName" className="sr-only">User Name</label>
-            <input
-              type="text"
-              id="userName"
-              className="w-full px-5 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400"
-              value={userName}
-              onChange={(e) => setUserName(e.target.value)}
-              placeholder="User Name"
-            />
-          </div>
-          <button
-            onClick={handleJoinRoom}
-            className="w-full bg-blue-600 text-white py-3 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200 text-xl font-bold uppercase tracking-wide"
-          >
-            Join Room
-          </button>
-          <p className="text-center text-gray-600 mt-6 text-sm">
-            Your anonymous ID: <span className="font-mono text-xs select-all">{myUserId || 'N/A'}</span>
-          </p>
+        <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-gradient-to-br from-blue-600 to-purple-700 w-full p-4 font-sans text-center">
+            <div className="bg-white p-8 sm:p-10 rounded-2xl shadow-2xl w-full max-w-sm transform transition-all duration-300 ease-in-out hover:scale-105">
+                <div className="app-logo flex justify-center mb-6">
+                    <span className="material-symbols-outlined text-blue-600 text-8xl">person</span>
+                </div>
+                <h1 className="text-5xl font-extrabold text-gray-900 mb-2">Parichat</h1>
+                <p className="text-base text-gray-600 font-medium mb-8">Seamlessly Connect. Chat & Video Call. Privately.</p>
+
+                <form onSubmit={handleJoinRoom} className="login-form space-y-5">
+                    <div className="input-group">
+                        <input
+                            type="text"
+                            id="roomCode"
+                            placeholder="Room Code"
+                            required
+                            className="w-full px-5 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400 text-base"
+                            value={roomId}
+                            onChange={(e) => setRoomId(e.target.value)}
+                        />
+                    </div>
+                    <div className="input-group">
+                        <input
+                            type="text"
+                            id="userName"
+                            placeholder="User Name"
+                            required
+                            className="w-full px-5 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400 text-base"
+                            value={userName}
+                            onChange={(e) => setUserName(e.target.value)}
+                        />
+                    </div>
+                    <button
+                        type="submit"
+                        className="join-button w-full bg-blue-600 text-white py-3 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-300 text-xl font-bold uppercase tracking-wide shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                    >
+                        JOIN ROOM
+                    </button>
+                </form>
+                <p className="text-center text-gray-500 mt-6 text-xs">
+                    Your anonymous ID: <span className="font-mono text-[0.6rem] select-all">{myUserId || 'N/A'}</span>
+                </p>
+            </div>
         </div>
       )}
 
@@ -842,8 +819,7 @@ function App() {
                 key={msg.id}
                 className={`flex ${msg.senderId === myUserId ? 'justify-end' : 'justify-start'}`}
               >
-                {/* System messages (e.g., "User Joined", "User Left") */}
-                {/* Now, no 'system' messages for join/leave events will be generated */}
+                {/* System messages will still display with this styling if added (e.g., from an old Firestore entry) but new ones are not generated */}
                 {msg.senderId === 'system' ? (
                   <div className="text-center w-full">
                     <span className="text-xs text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
@@ -961,5 +937,3 @@ function App() {
         </div>
       );
     }
-
-    export default App;
